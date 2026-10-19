@@ -171,6 +171,7 @@ namespace MacSkin
                 var p = Process.GetProcessById((int)id);
                 if (p.ProcessName == "ApplicationFrameHost") { var t = Regex.Split(Win32.Titulo(h), " [-–] "); return t[t.Length - 1]; }   // apps da Store
                 if (p.ProcessName == "explorer") n = "Explorador de Arquivos";
+                else if (p.ProcessName == "MacSkin") n = "Finder";
                 else { var d = p.MainModule.FileVersionInfo.FileDescription; n = string.IsNullOrEmpty(d) ? p.ProcessName : d; }
             }
             catch { n = ""; }

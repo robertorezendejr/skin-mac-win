@@ -1,6 +1,7 @@
 // Mac Skin: um só programa nativo no lugar dos scripts PowerShell (dock, barra de menus e cores dos botões).
 //   MacSkin.exe           abre dock + barra + botões (uma instância só)
 //   MacSkin.exe --vigia   abre o de cima e reabre se ele cair (é o que roda no login)
+//   MacSkin.exe --finder [pasta]   abre uma janela do Finder
 // "Desligar Mac Skin" cria o arquivo "desligado" na pasta e fecha tudo; o vigia respeita.
 using System;
 using System.Diagnostics;
@@ -19,7 +20,20 @@ namespace MacSkin
         static int Main(string[] args)
         {
             if (args.Length > 0 && args[0] == "--vigia") return Vigia();
+            if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null);
             return Abrir();
+        }
+
+        // cada janela do Finder é um processo à parte: se uma travar numa pasta de rede, as outras e a dock seguem
+        static int AbrirFinder(string pasta)
+        {
+            var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
+            app.DispatcherUnhandledException += (s, e) => { Comum.Log("finder.log", "falha: " + e.Exception); e.Handled = true; };
+            // a leitura da pasta (Task) devolve o resultado para a tela por este contexto; sem ele, só existiria após o Run
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+            try { new Finder(pasta).Mostrar(); }
+            catch (Exception e) { Comum.Log("finder.log", "não abriu: " + e); return 1; }
+            return app.Run();
         }
 
         static int Abrir()
