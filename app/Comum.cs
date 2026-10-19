@@ -73,5 +73,14 @@ namespace MacSkin
             Func<string, string> p = n => (l.GetType().InvokeMember(n, BindingFlags.GetProperty, null, l, null) ?? "").ToString();
             return new Atalho { Caminho = lnk, Alvo = p("TargetPath"), Argumentos = p("Arguments"), Icone = p("IconLocation"), Descricao = p("Description") };
         }
+
+        public static void Criar(string lnk, string alvo, string argumentos, string descricao)
+        {
+            if (shell == null) shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+            object l = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { lnk });
+            Action<string, string> s = (n, v) => l.GetType().InvokeMember(n, BindingFlags.SetProperty, null, l, new object[] { v });
+            s("TargetPath", alvo); s("Arguments", argumentos ?? ""); s("Description", descricao ?? "");
+            l.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, l, null);
+        }
     }
 }

@@ -32,6 +32,11 @@ namespace MacSkin
         {
             public Grid Caixa; public Image Img; public Ellipse Ponto; public TranslateTransform Pulo;
             public string Nome, Abrir, Exe; public double Centro, Atual = 1, Alvo = 1, Largura = Base + Gap;
+            public bool Fixo;                 // atalho na pasta da dock (senão é só um app aberto)
+            public string AppId;              // identidade do app quando o atalho abre por shell:AppsFolder
+            public string Chave;              // app aberto não fixado: identidade da janela (ou executável)
+            public JanelaApp Modelo;          // app aberto: dados para "Manter na Dock"
+            public List<JanelaApp> Janelas = new List<JanelaApp>();
         }
 
         readonly string pasta = System.IO.Path.Combine(Comum.Dir, "dock");
@@ -41,7 +46,7 @@ namespace MacSkin
         public Window Janela;
         Window vidro;
         Grid raiz, dock;
-        Border fundo, aro, sep, rotulo;
+        Border fundo, aro, sep, sepAbertos, rotulo;
         TextBlock texto;
         StackPanel linha;
         readonly List<Item> els = new List<Item>();
@@ -50,7 +55,7 @@ namespace MacSkin
         IntPtr hwnd, hVidro; double f = 1; int telaW, telaH;
         bool? claro; bool? cheia; bool mostrarBarra;
         string rVidro;
-        readonly Dictionary<uint, string> nomesPid = new Dictionary<uint, string>();
+        Brush corPonto = Brushes.White;
 
         static void Log(string m) { Comum.Log("dock.log", m); }
 
@@ -106,12 +111,14 @@ namespace MacSkin
             menu.Items.Add(m1); menu.Items.Add(m3); menu.Items.Add(m2);
             dock.ContextMenu = menu; LigarMenu(menu);
 
+            // ordem na dock: apps fixados | apps abertos não fixados | Lixeira, com separadores
+            sepAbertos = NovoSeparador(); sepAbertos.Visibility = Visibility.Collapsed;
+            sep = NovoSeparador();
+            linha.Children.Add(sepAbertos); linha.Children.Add(sep);
             CarregarItens();
-            sep = new Border { Width = 1, Height = Base * 0.75, Margin = new Thickness(6, 0, 6, 8), VerticalAlignment = VerticalAlignment.Bottom };
-            linha.Children.Insert(els.Count, sep);
             if (File.Exists(lixo))
             {
-                lixeira = NovoItem("Lixeira", "shell:RecycleBinFolder", null, Comum.Icone(lixo));
+                lixeira = NovoItem("Lixeira", "shell:RecycleBinFolder", null, Comum.Icone(lixo), false);
             }
             CalcularCentros();
 
@@ -162,21 +169,37 @@ namespace MacSkin
                 try
                 {
                     var l = Atalho.Ler(arq);
+                    bool porAppsFolder = l.Argumentos.StartsWith("shell:AppsFolder", StringComparison.OrdinalIgnoreCase);
+                    string appId = porAppsFolder ? l.Argumentos.Substring("shell:AppsFolder".Length).TrimStart('\\') : null;
                     string ico = Environment.ExpandEnvironmentVariables(Regex.Replace(l.Icone, @",-?\d+$", ""));
-                    if (ico.Length == 0) ico = l.Alvo.Length > 0 ? l.Alvo : arq;
                     // o instalador grava o processo do app na Descrição (os atalhos abrem por shell:AppsFolder)
-                    string exe = l.Argumentos.StartsWith("shell:AppsFolder", StringComparison.OrdinalIgnoreCase) ? l.Descricao
+                    string exe = porAppsFolder ? l.Descricao
                         : l.Alvo.Length > 0 ? System.IO.Path.GetFileNameWithoutExtension(l.Alvo) : "explorer";
-                    var img = Comum.Icone(ico);
-                    if (img != null) NovoItem(Regex.Replace(System.IO.Path.GetFileNameWithoutExtension(arq), @"^\d+\s*", ""), arq, exe, img);
+                    string nome = Regex.Replace(System.IO.Path.GetFileNameWithoutExtension(arq), @"^\d+\s*", "");
+                    if (ico.Length > 0 || !porAppsFolder)
+                    {
+                        var img = Comum.Icone(ico.Length > 0 ? ico : l.Alvo.Length > 0 ? l.Alvo : arq);
+                        if (img != null) { var el = NovoItem(nome, arq, exe, img, true); el.AppId = appId; }
+                    }
+                    else
+                    {
+                        // fixado com "Manter na Dock" sem ícone próprio: o ícone vem do próprio app (o mesmo do Iniciar)
+                        var el = NovoItem(nome, arq, exe, null, true); el.AppId = appId;
+                        Shell.PedirImagem(l.Argumentos, 128, img => el.Img.Source = img);
+                    }
                 }
                 catch (Exception e) { Log("item " + arq + ": " + e.Message); }
             }
         }
 
-        Item NovoItem(string nome, string abrir, string exe, ImageSource img)
+        static Border NovoSeparador()
         {
-            var el = new Item { Nome = nome, Abrir = abrir, Exe = exe };
+            return new Border { Width = 1, Height = Base * 0.75, Margin = new Thickness(6, 0, 6, 8), VerticalAlignment = VerticalAlignment.Bottom };
+        }
+
+        Item NovoItem(string nome, string abrir, string exe, ImageSource img, bool fixo)
+        {
+            var el = new Item { Nome = nome, Abrir = abrir, Exe = exe, Fixo = fixo };
             el.Img = new Image { Source = img, Stretch = Stretch.Uniform };
             RenderOptions.SetBitmapScalingMode(el.Img, BitmapScalingMode.HighQuality);
             el.Pulo = new TranslateTransform(); el.Img.RenderTransform = el.Pulo;
@@ -190,14 +213,21 @@ namespace MacSkin
                 bool ativo = arrastoAtivo; arrastando = null; arrastoAtivo = false;
                 if (ativo) SalvarOrdem(); else Abrir(el);
             };
-            if (abrir.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))   // a Lixeira fica sempre
+            if (abrir != "shell:RecycleBinFolder")   // a Lixeira não tem menu
             {
-                var mi = new MenuItem { Header = "Remover da Dock" };
-                mi.Click += delegate { Remover(el); };
-                el.Caixa.ContextMenu = new ContextMenu(); el.Caixa.ContextMenu.Items.Add(mi);
-                LigarMenu(el.Caixa.ContextMenu);
+                // o menu muda conforme o app está fixado e/ou aberto, então é montado na hora
+                var m = new ContextMenu(); el.Caixa.ContextMenu = m; LigarMenu(m);
+                el.Caixa.ContextMenuOpening += delegate
+                {
+                    m.Items.Clear();
+                    Action<string, Action> op = (t, a) => { var mi = new MenuItem { Header = t }; mi.Click += delegate { a(); }; m.Items.Add(mi); };
+                    if (el.Fixo) op("Remover da Dock", () => Remover(el)); else op("Manter na Dock", () => ManterNaDock(el));
+                    if (el.Janelas.Count > 0) { m.Items.Add(new Separator()); op("Encerrar", () => Encerrar(el)); }
+                };
             }
-            linha.Children.Add(el.Caixa); els.Add(el);
+            // fixados antes do separador dos abertos; abertos antes do separador da Lixeira; Lixeira no fim
+            int pos = abrir == "shell:RecycleBinFolder" ? linha.Children.Count : linha.Children.IndexOf(fixo ? sepAbertos : sep);
+            linha.Children.Insert(pos, el.Caixa); els.Add(el);
             return el;
         }
 
@@ -211,12 +241,17 @@ namespace MacSkin
         // centros sem ampliação, relativos ao meio da dock: a ampliação não mexe neles (sem tremedeira)
         void CalcularCentros()
         {
-            double total = els.Sum(e => e.Largura) + LarguraSep;
+            // percorre a linha na ordem da tela: ícones ocupam Largura, separadores visíveis LarguraSep
+            var porCaixa = els.ToDictionary(e => (UIElement)e.Caixa);
+            double total = 0;
+            foreach (UIElement c in linha.Children)
+                total += porCaixa.ContainsKey(c) ? porCaixa[c].Largura : c.Visibility == Visibility.Visible ? LarguraSep : 0;
             double x = -total / 2;
-            foreach (var el in els)
+            foreach (UIElement c in linha.Children)
             {
-                if (el == lixeira) x += LarguraSep;
-                el.Centro = x + el.Largura / 2; x += el.Largura;
+                Item el;
+                if (porCaixa.TryGetValue(c, out el)) { el.Centro = x + el.Largura / 2; x += el.Largura; }
+                else if (c.Visibility == Visibility.Visible) x += LarguraSep;
             }
         }
 
@@ -232,53 +267,89 @@ namespace MacSkin
         {
             try
             {
+                // já aberto: traz a janela do próprio app (a de cima primeiro); minimizada, restaura
+                if (el.Janelas.Count > 0)
+                {
+                    var j = el.Janelas[0].H;
+                    if (Win32.IsIconic(j)) Win32.ShowWindow(j, 9);
+                    Win32.SetForegroundWindow(j); return;
+                }
                 if (el.Exe == "explorer")   // o Finder da dock é o nosso; o Explorador continua no Win+E
                 {
                     Process.Start(Process.GetCurrentProcess().MainModule.FileName, "--finder");
                     Pular(el); return;
                 }
-                if (!string.IsNullOrEmpty(el.Exe) && el.Exe != "explorer")
-                {
-                    var p = Process.GetProcessesByName(el.Exe).FirstOrDefault(x => x.MainWindowHandle != IntPtr.Zero);
-                    if (p != null)
-                    {
-                        if (Win32.IsIconic(p.MainWindowHandle)) Win32.ShowWindow(p.MainWindowHandle, 9);
-                        Win32.SetForegroundWindow(p.MainWindowHandle); return;
-                    }
-                }
+                if (!el.Fixo) return;   // app aberto que acabou de fechar
                 Process.Start(el.Abrir);
                 Pular(el);
             }
             catch (Exception e) { Log("abrir " + el.Nome + ": " + e.Message); }
         }
 
-        // tira o ícone na hora e apaga o atalho da pasta da dock (o app em si não é tocado)
+        // tira o ícone na hora e apaga o atalho da pasta da dock (o app em si não é tocado; se estiver aberto,
+        // volta logo como app aberto)
         void Remover(Item el)
         {
             try
             {
                 File.Delete(el.Abrir);
-                linha.Children.Remove(el.Caixa); els.Remove(el); sobre = null;
-                CalcularCentros();
+                TirarDaLinha(el);
+                Atualizar();
             }
             catch (Exception e) { Log("remover " + el.Nome + ": " + e.Message); }
         }
 
-        // arrastar para reordenar: troca de lugar ao passar do meio do vizinho; a ordem vai para os nomes (01, 02...)
+        void TirarDaLinha(Item el)
+        {
+            linha.Children.Remove(el.Caixa); els.Remove(el); if (sobre == el) sobre = null;
+            CalcularCentros();
+        }
+
+        // app aberto -> atalho na pasta da dock, no fim dos fixados (abre pelo mesmo caminho do Iniciar quando tem identidade)
+        void ManterNaDock(Item el)
+        {
+            try
+            {
+                var j = el.Modelo;
+                int n = Fixados().Count + 1;
+                string lnk = System.IO.Path.Combine(pasta, string.Format("{0:D2} {1}.lnk", n, Regex.Replace(el.Nome, @"[\\/:*?""<>|]", "")));
+                if (!string.IsNullOrEmpty(j.Aumid)) Atalho.Criar(lnk, System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), @"shell:AppsFolder\" + j.Aumid, j.Processo);
+                else Atalho.Criar(lnk, j.Caminho, "", j.Processo);
+                el.Fixo = true; el.Abrir = lnk; el.AppId = string.IsNullOrEmpty(j.Aumid) ? null : j.Aumid; el.Chave = null;
+                linha.Children.Remove(el.Caixa); linha.Children.Insert(linha.Children.IndexOf(sepAbertos), el.Caixa);
+                Atualizar(); CalcularCentros();
+            }
+            catch (Exception e) { Log("manter " + el.Nome + ": " + e.Message); }
+        }
+
+        // pede para fechar (como o X da janela): o app pode perguntar se quer salvar
+        void Encerrar(Item el)
+        {
+            foreach (var j in el.Janelas) Win32.PostMessage(j.H, 0x10, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        List<Item> Fixados()
+        {
+            var porCaixa = els.ToDictionary(e => (UIElement)e.Caixa);
+            var r = new List<Item>();
+            foreach (UIElement c in linha.Children) { if (c == sepAbertos) break; Item el; if (porCaixa.TryGetValue(c, out el)) r.Add(el); }
+            return r;
+        }
+
+        // arrastar para reordenar (só os fixados): troca de lugar ao passar do meio do vizinho; a ordem vai para os nomes (01, 02...)
         void Arrastar(double x)
         {
             if (!arrastoAtivo)
             {
-                if (Math.Abs(x - arrastoX0) < 8 || arrastando == lixeira) return;
+                if (Math.Abs(x - arrastoX0) < 8 || !arrastando.Fixo) return;
                 arrastoAtivo = true;
             }
-            var apps = els.Where(e => e != lixeira).ToList();
+            var apps = Fixados();
             double rel = x - raiz.ActualWidth / 2;
             int alvo = 0; for (int i = 0; i < apps.Count; i++) if (rel > apps[i].Centro) alvo = i;
             if (alvo != apps.IndexOf(arrastando))
             {
                 linha.Children.Remove(arrastando.Caixa); linha.Children.Insert(alvo, arrastando.Caixa);
-                els.Remove(arrastando); els.Insert(alvo, arrastando);
                 CalcularCentros();
             }
         }
@@ -287,7 +358,7 @@ namespace MacSkin
         {
             try
             {
-                var apps = els.Where(e => e != lixeira).ToList();
+                var apps = Fixados();
                 foreach (var el in apps)   // nome temporário primeiro, para não colidir com outro atalho
                 {
                     string tmp = System.IO.Path.Combine(pasta, "~" + Guid.NewGuid() + ".lnk");
@@ -304,15 +375,54 @@ namespace MacSkin
         }
 
         // ---------- tema, apps abertos, lixeira, tela cheia ----------
-        string NomeProcesso(uint pid)
+        // liga cada janela aberta a um ícone: o fixado do mesmo app ou um ícone de "aberto", criado na hora,
+        // depois dos fixados (como no Mac). Fechou o app, o ícone de aberto some; o fixado fica.
+        void AtualizarAbertos()
         {
-            string n;
-            if (!nomesPid.TryGetValue(pid, out n))
+            var janelas = Janelas.Abertas();
+            foreach (var el in els) el.Janelas.Clear();
+            var fixados = els.Where(e => e.Fixo).ToList();
+            var finder = fixados.FirstOrDefault(e => e.Exe == "explorer");
+            var sobra = new List<JanelaApp>();
+            foreach (var j in janelas)
             {
-                try { n = Process.GetProcessById((int)pid).ProcessName.ToLowerInvariant(); } catch { n = ""; }
-                nomesPid[pid] = n;
+                Item dono = null;
+                // Finder: as nossas janelas do Finder e as do Explorador de Arquivos
+                if (j.Processo == "macskin" || (j.Processo == "explorer" && Win32.Classe(j.H) == "CabinetWClass")) dono = finder;
+                if (dono == null) dono = fixados.FirstOrDefault(e => Combina(e, j));
+                if (dono != null) dono.Janelas.Add(j); else sobra.Add(j);
             }
-            return n;
+            var abertos = els.Where(e => !e.Fixo && e != lixeira).ToList();
+            foreach (var grupo in sobra.GroupBy(j => j.Chave))
+            {
+                var el = abertos.FirstOrDefault(e => e.Chave == grupo.Key);
+                if (el == null)
+                {
+                    var j = grupo.First();
+                    el = NovoItem(Janelas.Nome(j), null, j.Processo, null, false);
+                    el.Chave = grupo.Key; el.Modelo = j; el.Ponto.Fill = corPonto;
+                    // o ícone do próprio app: o do Iniciar quando tem identidade, senão o do executável
+                    var item = el;
+                    Shell.PedirImagem(string.IsNullOrEmpty(j.Aumid) ? j.Caminho : @"shell:AppsFolder\" + j.Aumid, 128, img => item.Img.Source = img);
+                    abertos.Add(el);
+                }
+                el.Janelas.AddRange(grupo);
+            }
+            foreach (var el in abertos.Where(e => e.Janelas.Count == 0).ToList()) TirarDaLinha(el);
+            sepAbertos.Visibility = els.Any(e => !e.Fixo && e != lixeira) ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var el in els)
+                if (el != lixeira) el.Ponto.Visibility = el.Janelas.Count > 0 || el == finder ? Visibility.Visible : Visibility.Hidden;   // Finder sempre aberto, como no Mac
+            CalcularCentros();
+        }
+
+        // a janela é deste app fixado? Pela identidade (Keep não é o Edge, mesmo rodando dentro dele) ou,
+        // quando a janela não tem identidade, pelo processo
+        static bool Combina(Item el, JanelaApp j)
+        {
+            if (!string.IsNullOrEmpty(el.AppId) && !string.IsNullOrEmpty(j.Aumid))
+                return string.Equals(el.AppId, j.Aumid, StringComparison.OrdinalIgnoreCase)
+                    || j.Aumid.StartsWith(el.AppId + ".", StringComparison.OrdinalIgnoreCase);   // ex.: perfis do Edge (MSEdge.xxxx)
+            return !string.IsNullOrEmpty(el.Exe) && string.Equals(el.Exe, j.Processo, StringComparison.OrdinalIgnoreCase);
         }
 
         void Atualizar()
@@ -328,15 +438,13 @@ namespace MacSkin
                     aro.BorderBrush = Comum.Cor(c ? "#B3EDEDEF" : "#B3252528");
                     fundo.Background = c ? Comum.Degrade("#38FFFFFF", "#0AFFFFFF") : Comum.Degrade("#22FFFFFF", "#05FFFFFF");
                     fundo.BorderBrush = c ? Comum.Degrade("#E6FFFFFF", "#40FFFFFF") : Comum.Degrade("#80FFFFFF", "#1AFFFFFF");
-                    sep.Background = Comum.Cor(c ? "#40000000" : "#40FFFFFF");
+                    sep.Background = sepAbertos.Background = Comum.Cor(c ? "#40000000" : "#40FFFFFF");
                     rotulo.Background = Comum.Cor(c ? "#EEF2F2F4" : "#EE2C2C30");
                     texto.Foreground = Comum.Cor(c ? "#FF1D1D1F" : "#FFF5F5F7");
-                    foreach (var el in els) el.Ponto.Fill = Comum.Cor(c ? "#CC1D1D1F" : "#CCF5F5F7");
+                    corPonto = Comum.Cor(c ? "#CC1D1D1F" : "#CCF5F5F7");
+                    foreach (var el in els) el.Ponto.Fill = corPonto;
                 }
-                var abertos = new HashSet<string>(Win32.PidsComJanela().Select(NomeProcesso));
-                abertos.Add("explorer");   // como o Finder: sempre aberto
-                foreach (var el in els)
-                    if (!string.IsNullOrEmpty(el.Exe)) el.Ponto.Visibility = abertos.Contains(el.Exe.ToLowerInvariant()) ? Visibility.Visible : Visibility.Hidden;
+                AtualizarAbertos();
                 if (lixeira != null)
                 {
                     bool ch = Win32.LixeiraCheia();
