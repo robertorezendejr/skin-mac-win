@@ -282,7 +282,8 @@ function Abrir-Dock {
 # fecha pedindo (WM_CLOSE): assim dock e barra devolvem o espaço reservado e a barra do Windows volta
 function Fechar-Dock {
     $ps = { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1') -or $_.Name -eq 'MacSkin.exe' } }
+        ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1') -or
+        ($_.Name -eq 'MacSkin.exe' -and $_.CommandLine -notmatch '--finder') } }   # janelas do Finder ficam abertas
     & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1|--vigia' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     try {
         Win32

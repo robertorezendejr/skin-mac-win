@@ -25,7 +25,9 @@ if exist "%SRC%\payload\icones\" xcopy /e /i /y /q "%SRC%\payload\icones" "%DEST
 if exist "%SRC%\payload\fontes\" xcopy /e /i /y /q "%SRC%\payload\fontes" "%DEST%\fontes" >nul && set "COMP=%COMP%,fonte"
 rem MacSkin.exe nativo (dock, barra e botões num processo só); se não compilar, ficam os scripts PowerShell
 call "%~dp0app\compilar.cmd" >nul 2>&1
-taskkill /im MacSkin.exe /f >nul 2>&1
+rem o exe pode estar em uso (dock ou janelas do Finder): o Windows deixa renomear, então o antigo sai do caminho
+del /q "%DEST%\MacSkin.antigo-*.exe" >nul 2>&1
+if exist "%SRC%\MacSkin.exe" if exist "%DEST%\MacSkin.exe" ren "%DEST%\MacSkin.exe" "MacSkin.antigo-%RANDOM%.exe"
 if exist "%SRC%\MacSkin.exe" copy /y "%SRC%\MacSkin.exe" "%DEST%\" >nul
 copy /y "%SRC%\dock.ps1" "%DEST%\" >nul && copy /y "%SRC%\barra.ps1" "%DEST%\" >nul && copy /y "%SRC%\botoes.ps1" "%DEST%\" >nul &&copy /y "%SRC%\vigia.ps1" "%DEST%\" >nul && set "COMP=%COMP%,dock"
 copy /y "%~dp0desinstalar.cmd" "%DEST%\" >nul

@@ -10,6 +10,7 @@ if not exist "%BK%\macskin.ps1" (echo Não há backup em %BK%. & pause & exit /b
 echo Fechando a versão atual...
 if exist "%DEST%\macskin.ps1" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DEST%\macskin.ps1" -Acao desligar
 taskkill /im MacSkin.exe /f >nul 2>&1
+del /q "%DEST%\MacSkin.antigo-*.exe" >nul 2>&1
 
 echo Restaurando o backup...
 rem mantém o que é seu: backup do Windows original, tema escolhido e os apps da dock
