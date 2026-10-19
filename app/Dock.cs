@@ -232,6 +232,11 @@ namespace MacSkin
         {
             try
             {
+                if (el.Exe == "explorer")   // o Finder da dock é o nosso; o Explorador continua no Win+E
+                {
+                    Process.Start(Process.GetCurrentProcess().MainModule.FileName, "--finder");
+                    Pular(el); return;
+                }
                 if (!string.IsNullOrEmpty(el.Exe) && el.Exe != "explorer")
                 {
                     var p = Process.GetProcessesByName(el.Exe).FirstOrDefault(x => x.MainWindowHandle != IntPtr.Zero);

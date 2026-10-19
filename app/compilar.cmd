@@ -11,7 +11,7 @@ if exist "%~dp0..\instalador\payload\icones\Finder.ico" set "ICO=/win32icon:%~dp
 
 "%FW%\csc.exe" /nologo /target:winexe /optimize+ /platform:x64 /out:"%OUT%" %ICO% ^
   /r:"%WPF%\PresentationFramework.dll" /r:"%WPF%\PresentationCore.dll" /r:"%WPF%\WindowsBase.dll" /r:"%FW%\System.Xaml.dll" ^
-  /r:"%WPF%\UIAutomationClient.dll" /r:"%WPF%\UIAutomationTypes.dll" /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
+  /r:"%WPF%\UIAutomationClient.dll" /r:"%WPF%\UIAutomationTypes.dll" /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:Microsoft.VisualBasic.dll ^
   "%~dp0*.cs"
 if errorlevel 1 (echo Falha ao compilar o MacSkin.exe. & exit /b 1)
 echo MacSkin.exe compilado.
