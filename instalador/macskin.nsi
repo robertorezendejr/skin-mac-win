@@ -33,19 +33,26 @@ Section "Base: dock no centro, azul Apple, transparência, claro/escuro automát
   StrCpy $Comp "base"
 SectionEnd
 
-Section "Cursores do macOS" SecCur
+Section "Dock do macOS com Liquid Glass (esconde a barra do Windows)" SecDock
+  SetOutPath "$INSTDIR"
+  File "dock.ps1"
+  File "botoes.ps1"
+  StrCpy $Comp "$Comp,dock"
+SectionEnd
+
+Section /o "Cursores do macOS" SecCur
   SetOutPath "$INSTDIR\cursores"
   File "payload/cursores/*.*"
   StrCpy $Comp "$Comp,cursores"
 SectionEnd
 
-Section "Papel de parede Sonoma (claro e escuro)" SecWall
+Section "Papel de parede do macOS (claro e escuro)" SecWall
   SetOutPath "$INSTDIR\wallpaper"
   File "payload/wallpaper/*.jpg"
   StrCpy $Comp "$Comp,wallpaper"
 SectionEnd
 
-Section "Ícones da Apple (dock, Iniciar, pastas, Lixeira)" SecIco
+Section "Ícones do macOS (dock, Iniciar, pastas, Lixeira)" SecIco
   SetOutPath "$INSTDIR\icones"
   File "payload/icones/*.ico"
   StrCpy $Comp "$Comp,icones"

@@ -1,7 +1,7 @@
 ﻿# Mac Skin: aplica/remove o visual macOS no Windows, só no usuário atual (nada pede admin).
 # Tudo que é alterado vai antes para backup.json, e "-Acao remover" restaura exatamente o que havia.
 param(
-    [ValidateSet('instalar', 'remover', 'claro', 'escuro', 'auto')]
+    [ValidateSet('instalar', 'remover', 'cursores-original', 'claro', 'escuro', 'automatico', 'auto')]
     [string]$Acao = 'auto',
     [string]$Componentes = 'base'
 )
@@ -44,7 +44,7 @@ function Set-Reg($Path, $Name, $Value, $Type = 'DWord') {
             }
         }
         if (-not (Test-Path $Path)) { New-Item $Path -Force | Out-Null }
-        New-ItemProperty $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
+        New-ItemProperty $Path -Name $Name -Value $Value -PropertyType $Type -Force -ErrorAction Stop | Out-Null
     } catch { Log "  aviso: não deu para gravar $Path\$Name ($($_.Exception.Message))" }
 }
 
@@ -86,8 +86,13 @@ function Set-Tema([bool]$claro) {
     Atualizar-Sistema $wp
     Log "tema: $(if ($claro) { 'claro' } else { 'escuro' })"
 }
-# ponytail: horário fixo 07h/19h; trocar por nascer/pôr do sol se fizer falta
-function Tema-Auto { $h = (Get-Date).Hour; Set-Tema ($h -ge 7 -and $h -lt 19) }
+# preferência em tema.txt (escuro, claro ou auto); só "auto" segue o horário 07h/19h
+$PrefArq = Join-Path $Dir 'tema.txt'
+function Tema-Auto {
+    $pref = if (Test-Path $PrefArq) { (Get-Content $PrefArq -Raw).Trim() } else { 'escuro' }
+    if ($pref -eq 'auto') { $h = (Get-Date).Hour; Set-Tema ($h -ge 7 -and $h -lt 19) } else { Set-Tema ($pref -eq 'claro') }
+}
+function Fixar-Tema($pref) { Set-Content $PrefArq $pref; Tema-Auto }
 
 # ---------- componentes ----------
 function Instalar-Base {
@@ -114,6 +119,7 @@ function Instalar-Base {
     Set-Reg $dwm ColorizationColor 0xC4007AFF   # ARGB
     Set-Reg $dwm ColorizationAfterglow 0xC4007AFF
     Set-Reg $dwm ColorPrevalence 0
+    Set-Reg 'HKCU:\Software\Microsoft\Office\16.0\Common' 'UI Theme' 6   # Office (Outlook, Word...) segue o claro/escuro do Windows
 
     # alterna claro/escuro às 07h e 19h (tarefa do próprio usuário); o login é coberto pelo atalho em Inicializar
     try {
@@ -182,13 +188,13 @@ function Instalar-Icones {
         'code.exe' = 'Visual Studio Code'; 'notepad.exe' = 'TextEdit'; 'calc.exe' = 'Calculator'
         'wt.exe' = 'Terminal'; 'windowsterminal.exe' = 'Terminal'; 'powershell.exe' = 'Terminal'; 'pwsh.exe' = 'Terminal'; 'cmd.exe' = 'Terminal'
         'taskmgr.exe' = 'Activity Monitor'; 'snippingtool.exe' = 'Screenshot'; 'control.exe' = 'System Settings'
-        'onedrive.exe' = 'OneDrive'; 'googledrivefs.exe' = 'Google Drive'; 'vlc.exe' = 'VLC'; 'claude.exe' = 'Claude'
+        'onedrive.exe' = 'OneDrive'; 'googledrivefs.exe' = 'Google Drive'; 'vlc.exe' = 'VLC'; 'claude.exe' = 'Claude'; 'antigravity ide.exe' = 'Antigravity'
         'acrord32.exe' = 'Preview'; 'acrobat.exe' = 'Preview' }
     $porNome = @{ 'file explorer' = 'Finder'; 'explorador de arquivos' = 'Finder'; 'explorer' = 'Finder' }
     $pastas = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
     try { $sh = New-Object -ComObject WScript.Shell } catch { Log "  aviso: atalhos não alterados ($($_.Exception.Message))"; return }
     foreach ($f in Get-ChildItem $pastas -Recurse -Filter *.lnk -ErrorAction SilentlyContinue) {
-        if ($f.FullName -like '*\Mac Skin\*') { continue }
+        if ($f.FullName -like '*\Mac Skin*') { continue }   # atalhos do próprio Mac Skin (pasta e Inicializar)
         try {
             $l = $sh.CreateShortcut($f.FullName)
             $n = $porExe[[IO.Path]::GetFileName($l.TargetPath)]
@@ -208,16 +214,92 @@ function Instalar-Fonte {
     New-Item $fd -ItemType Directory -Force | Out-Null
     foreach ($f in Get-ChildItem (Join-Path $Dir 'fontes') -Filter *.ttf) {
         $dest = Join-Path $fd $f.Name
-        Copy-Item $f.FullName $dest -Force
+        Copy-Item $f.FullName $dest -Force -ErrorAction SilentlyContinue   # reinstalação: a fonte já está em uso
         if ($bk.arquivos -notcontains $dest) { [void]$bk.arquivos.Add($dest) }
         $nome = if ($f.Name -like '*Italic*') { 'Inter Italic (TrueType)' } else { 'Inter (TrueType)' }
         Set-Reg 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts' $nome $dest String
     }
 }
 
+function Instalar-Dock {
+    Log 'dock: atalhos fixados na barra, barra do Windows oculta'
+    $d = Join-Path $Dir 'dock'
+    if (-not (Test-Path $d)) {   # só na primeira vez: depois a pasta é do usuário (Editar itens da Dock)
+        New-Item $d -ItemType Directory | Out-Null
+        # AppID do Iniciar (não depende do idioma) -> ícone em icones\ e processo (ponto de "aberto")
+        $padrao = @(
+            @('Microsoft\.Windows\.Explorer$', 'Finder', 'explorer'), @('^MSEdge$', 'Safari', 'msedge'),
+            @('OUTLOOK\.EXE', 'Mail', 'outlook'), @('M365Companions.*!Calendar$', 'Calendar', ''),
+            @('^MSTeams', 'Microsoft Teams', 'ms-teams'), @('WINWORD\.EXE', 'Microsoft Word', 'winword'),
+            @('EXCEL\.EXE', 'Microsoft Excel', 'excel'), @('POWERPNT\.EXE', 'Microsoft PowerPoint', 'powerpnt'),
+            @('StickyNotes', 'Notes', 'Microsoft.Notes'), @('WindowsCalculator', 'Calculator', ''),
+            @('^OpenAI\.', 'ChatGPT', ''), @('AnthropicClaude', 'Claude', 'claude'), @('AntigravityIDE', 'Antigravity', 'Antigravity IDE'),
+            @('VisualStudioCode', 'Visual Studio Code', 'code'), @('WindowsTerminal', 'Terminal', 'WindowsTerminal'),
+            @('WindowsStore', 'App Store', ''), @('immersivecontrolpanel', 'System Settings', ''))
+        $apps = @(Get-StartApps)
+        $sh = New-Object -ComObject WScript.Shell
+        $n = 1
+        foreach ($p in $padrao) {
+            $a = $apps | Where-Object { $_.AppID -match $p[0] } | Select-Object -First 1
+            $ico = Join-Path $Dir "icones\$($p[1]).ico"
+            if (-not $a -or -not (Test-Path $ico)) { continue }
+            $l = $sh.CreateShortcut((Join-Path $d ('{0:D2} {1}.lnk' -f $n++, ($a.Name -replace '[\\/:*?"<>|]', ''))))
+            $l.TargetPath = "$env:WINDIR\explorer.exe"; $l.Arguments = "shell:AppsFolder\$($a.AppID)"
+            $l.IconLocation = "$ico,0"; $l.Description = $p[2]   # Description = processo do app
+            $l.Save()
+        }
+        Log "  $($n - 1) apps na dock"
+    }
+    # barra do Windows em "ocultar automaticamente" (StuckRects3, byte 8: 3 = oculta, 2 = fixa)
+    $sr = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3'
+    $v = (Get-ItemProperty $sr -ErrorAction SilentlyContinue).Settings
+    if ($v) { $v = [byte[]]$v.Clone(); $v[8] = 3; Set-Reg $sr Settings $v Binary }
+    # dock.ps1 e botoes.ps1 (bolinhas vermelha/amarela/verde) abrem a cada login
+    foreach ($s in 'dock', 'botoes') {
+        $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Mac Skin $s.lnk"
+        try {
+            $l = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+            $l.TargetPath = 'powershell.exe'; $l.WindowStyle = 7
+            $l.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\$s.ps1`""
+            $l.Save()
+            if ($bk.arquivos -notcontains $lnk) { [void]$bk.arquivos.Add($lnk) }
+        } catch { Log "  aviso: $s.ps1 não vai abrir sozinho no login ($($_.Exception.Message))" }
+    }
+}
+function Abrir-Dock {
+    foreach ($s in 'dock', 'botoes') {
+        if (Test-Path (Join-Path $Dir "$s.ps1")) {
+            Start-Process powershell.exe "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\$s.ps1`"" -WindowStyle Hidden
+        }
+    }
+}
+function Fechar-Dock {
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*dock.ps1*' -or $_.CommandLine -like '*botoes.ps1*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
 # ---------- remoção ----------
+function Restaurar-Reg($r) {
+    try {
+        if (-not (Test-Path $r.Path)) { return }
+        if ($r.Existia) {
+            $v = if ($r.Tipo -eq 'Binary') { [Convert]::FromBase64String($r.Valor) } else { $r.Valor }
+            New-ItemProperty $r.Path -Name $r.Name -Value $v -PropertyType $r.Tipo -Force | Out-Null
+        } else { Remove-ItemProperty $r.Path -Name $r.Name -Force -ErrorAction SilentlyContinue }
+    } catch { Log "  aviso: $($r.Path)\$($r.Name)" }
+}
+
+# devolve só o mouse de antes e tira os cursores do backup (o resto do visual fica)
+function Remover-Cursores {
+    Log 'cursores: voltando aos de antes'
+    foreach ($r in @($bk.reg | Where-Object { $_.Path -like 'HKCU:\Control Panel\Cursors*' })) { Restaurar-Reg $r; [void]$bk.reg.Remove($r) }
+    Atualizar-Sistema $null
+}
+
 function Remover {
     Log 'removendo e restaurando o original'
+    Fechar-Dock
     try { Unregister-ScheduledTask -TaskName 'MacSkin Tema' -Confirm:$false -ErrorAction Stop } catch {}
     if ($bk.lnk.Count) {
         try { $sh = New-Object -ComObject WScript.Shell } catch { Log '  aviso: atalhos não restaurados' }
@@ -230,16 +312,7 @@ function Remover {
             if ($b.Existia) { Escrever-Ini $ini $b.Conteudo } elseif (Test-Path $ini) { Remove-Item $ini -Force }
         } catch { Log "  aviso: $ini" }
     }
-    for ($x = $bk.reg.Count - 1; $x -ge 0; $x--) {
-        $r = $bk.reg[$x]
-        try {
-            if (-not (Test-Path $r.Path)) { continue }
-            if ($r.Existia) {
-                $v = if ($r.Tipo -eq 'Binary') { [Convert]::FromBase64String($r.Valor) } else { $r.Valor }
-                New-ItemProperty $r.Path -Name $r.Name -Value $v -PropertyType $r.Tipo -Force | Out-Null
-            } else { Remove-ItemProperty $r.Path -Name $r.Name -Force -ErrorAction SilentlyContinue }
-        } catch { Log "  aviso: $($r.Path)\$($r.Name)" }
-    }
+    for ($x = $bk.reg.Count - 1; $x -ge 0; $x--) { Restaurar-Reg $bk.reg[$x] }
     foreach ($k in $bk.chaves) { Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue }
     foreach ($f in $bk.arquivos) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
     $wp = (Get-ItemProperty 'HKCU:\Control Panel\Desktop').WallPaper
@@ -259,13 +332,17 @@ switch ($Acao) {
         if ($comp -contains 'cursores') { Instalar-Cursores }
         if ($comp -contains 'icones') { Instalar-Icones }
         if ($comp -contains 'fonte') { Instalar-Fonte }
+        if ($comp -contains 'dock') { Fechar-Dock; Instalar-Dock }
         Tema-Auto
         Salvar-Backup
         Reiniciar-Explorer
+        if ($comp -contains 'dock') { Abrir-Dock }   # depois do Explorer, para a reserva de espaço valer
         Log 'pronto'
     }
     'remover' { Remover }
-    'claro' { Set-Tema $true; Salvar-Backup }
-    'escuro' { Set-Tema $false; Salvar-Backup }
+    'cursores-original' { Remover-Cursores; Salvar-Backup }
+    'claro' { Fixar-Tema 'claro'; Salvar-Backup }
+    'escuro' { Fixar-Tema 'escuro'; Salvar-Backup }
+    'automatico' { Fixar-Tema 'auto'; Salvar-Backup }
     'auto' { Tema-Auto; Salvar-Backup }
 }
