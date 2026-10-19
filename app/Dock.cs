@@ -108,7 +108,9 @@ namespace MacSkin
             // igual ao botão "Desligar Mac Skin": marca desligado (o vigia não reabre) e fecha
             var m2 = new MenuItem { Header = "Desligar Mac Skin" };
             m2.Click += delegate { try { File.WriteAllText(System.IO.Path.Combine(Comum.Dir, "desligado"), ""); } catch { } Janela.Close(); };
-            menu.Items.Add(m1); menu.Items.Add(m3); menu.Items.Add(m2);
+            var m4 = new MenuItem { Header = "Mostrar apps ocultos de novo" };
+            m4.Click += delegate { MostrarOcultos(); };
+            menu.Items.Add(m1); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m2);
             dock.ContextMenu = menu; LigarMenu(menu);
 
             // ordem na dock: apps fixados | apps abertos não fixados | Lixeira, com separadores
@@ -183,13 +185,24 @@ namespace MacSkin
                     }
                     else
                     {
-                        // fixado com "Manter na Dock" sem ícone próprio: o ícone vem do próprio app (o mesmo do Iniciar)
+                        // fixado com "Manter na Dock" sem ícone próprio: o ícone vem do próprio app
                         var el = NovoItem(nome, arq, exe, null, true); el.AppId = appId;
-                        Shell.PedirImagem(l.Argumentos, 128, img => el.Img.Source = img);
+                        PorIcone(el, appId, null);
                     }
                 }
                 catch (Exception e) { Log("item " + arq + ": " + e.Message); }
             }
+        }
+
+        // ícone de um app sem .ico estilo Mac: logo grande do pacote (Store, apps web instalados); senão o do Iniciar
+        // (shell:AppsFolder) ou o do executável, pedidos ao Windows em 256 px para não borrar
+        static void PorIcone(Item el, string aumid, string exe)
+        {
+            string logo = Janelas.LogoDoPacote(aumid);
+            var img = logo == null ? null : Comum.Icone(logo);
+            if (img != null) { el.Img.Source = img; return; }
+            string fonte = !string.IsNullOrEmpty(aumid) ? @"shell:AppsFolder\" + aumid : exe;
+            if (!string.IsNullOrEmpty(fonte)) Shell.PedirImagem(fonte, 256, i => el.Img.Source = i);
         }
 
         static Border NovoSeparador()
@@ -221,7 +234,8 @@ namespace MacSkin
                 {
                     m.Items.Clear();
                     Action<string, Action> op = (t, a) => { var mi = new MenuItem { Header = t }; mi.Click += delegate { a(); }; m.Items.Add(mi); };
-                    if (el.Fixo) op("Remover da Dock", () => Remover(el)); else op("Manter na Dock", () => ManterNaDock(el));
+                    if (el.Fixo) op("Remover da Dock", () => Remover(el));
+                    else { op("Manter na Dock", () => ManterNaDock(el)); op("Não mostrar na Dock", () => Ocultar(el)); }
                     if (el.Janelas.Count > 0) { m.Items.Add(new Separator()); op("Encerrar", () => Encerrar(el)); }
                 };
             }
@@ -322,6 +336,31 @@ namespace MacSkin
             catch (Exception e) { Log("manter " + el.Nome + ": " + e.Message); }
         }
 
+        // apps abertos que não aparecem na dock (janelinhas de apps de bandeja etc.): um por linha em dock-ocultos.txt
+        readonly string arqOcultos = System.IO.Path.Combine(Comum.Dir, "dock-ocultos.txt");
+        HashSet<string> ocultos;
+        HashSet<string> Ocultos()
+        {
+            if (ocultos == null)
+            {
+                ocultos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                try { if (File.Exists(arqOcultos)) foreach (var l in File.ReadAllLines(arqOcultos)) if (l.Trim().Length > 0 && !l.StartsWith("#")) ocultos.Add(l.Trim()); }
+                catch { }
+            }
+            return ocultos;
+        }
+        void Ocultar(Item el)
+        {
+            try { File.AppendAllText(arqOcultos, el.Chave + Environment.NewLine); } catch (Exception e) { Log("ocultar: " + e.Message); }
+            Ocultos().Add(el.Chave);
+            TirarDaLinha(el); AtualizarAbertos();
+        }
+        void MostrarOcultos()
+        {
+            try { File.Delete(arqOcultos); } catch { }
+            ocultos = null; AtualizarAbertos();
+        }
+
         // pede para fechar (como o X da janela): o app pode perguntar se quer salvar
         void Encerrar(Item el)
         {
@@ -390,7 +429,7 @@ namespace MacSkin
                 // Finder: as nossas janelas do Finder e as do Explorador de Arquivos
                 if (j.Processo == "macskin" || (j.Processo == "explorer" && Win32.Classe(j.H) == "CabinetWClass")) dono = finder;
                 if (dono == null) dono = fixados.FirstOrDefault(e => Combina(e, j));
-                if (dono != null) dono.Janelas.Add(j); else sobra.Add(j);
+                if (dono != null) dono.Janelas.Add(j); else if (!Ocultos().Contains(j.Chave)) sobra.Add(j);
             }
             var abertos = els.Where(e => !e.Fixo && e != lixeira).ToList();
             foreach (var grupo in sobra.GroupBy(j => j.Chave))
@@ -401,9 +440,7 @@ namespace MacSkin
                     var j = grupo.First();
                     el = NovoItem(Janelas.Nome(j), null, j.Processo, null, false);
                     el.Chave = grupo.Key; el.Modelo = j; el.Ponto.Fill = corPonto;
-                    // o ícone do próprio app: o do Iniciar quando tem identidade, senão o do executável
-                    var item = el;
-                    Shell.PedirImagem(string.IsNullOrEmpty(j.Aumid) ? j.Caminho : @"shell:AppsFolder\" + j.Aumid, 128, img => item.Img.Source = img);
+                    PorIcone(el, j.Aumid, j.Caminho);
                     abertos.Add(el);
                 }
                 el.Janelas.AddRange(grupo);
