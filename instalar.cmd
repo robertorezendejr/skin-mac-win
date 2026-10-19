@@ -23,7 +23,7 @@ rem cursores do macOS ficam de fora: o mouse do usuário continua o dele
 if exist "%SRC%\payload\wallpaper\" xcopy /e /i /y /q "%SRC%\payload\wallpaper" "%DEST%\wallpaper" >nul && set "COMP=%COMP%,wallpaper"
 if exist "%SRC%\payload\icones\" xcopy /e /i /y /q "%SRC%\payload\icones" "%DEST%\icones" >nul && set "COMP=%COMP%,icones"
 if exist "%SRC%\payload\fontes\" xcopy /e /i /y /q "%SRC%\payload\fontes" "%DEST%\fontes" >nul && set "COMP=%COMP%,fonte"
-copy /y "%SRC%\dock.ps1" "%DEST%\" >nul && copy /y "%SRC%\botoes.ps1" "%DEST%\" >nul && set "COMP=%COMP%,dock"
+copy /y "%SRC%\dock.ps1" "%DEST%\" >nul && copy /y "%SRC%\barra.ps1" "%DEST%\" >nul && copy /y "%SRC%\botoes.ps1" "%DEST%\" >nul &&copy /y "%SRC%\vigia.ps1" "%DEST%\" >nul && set "COMP=%COMP%,dock"
 copy /y "%~dp0desinstalar.cmd" "%DEST%\" >nul
 
 rem atalhos iguais aos do instalador: Iniciar > Mac Skin e o tema certo a cada login

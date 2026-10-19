@@ -1,7 +1,7 @@
 ﻿# Mac Skin: aplica/remove o visual macOS no Windows, só no usuário atual (nada pede admin).
 # Tudo que é alterado vai antes para backup.json, e "-Acao remover" restaura exatamente o que havia.
 param(
-    [ValidateSet('instalar', 'remover', 'cursores-original', 'claro', 'escuro', 'automatico', 'auto')]
+    [ValidateSet('instalar', 'remover', 'cursores-original', 'claro', 'escuro', 'automatico', 'auto', 'desligar', 'ligar')]
     [string]$Acao = 'auto',
     [string]$Componentes = 'base'
 )
@@ -54,6 +54,8 @@ function Win32 {
         Add-Type -Namespace MacSkin -Name W -MemberDefinition @'
 [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int a, int b, string c, int d);
 [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr h, int m, IntPtr w, string l, int f, int t, out IntPtr r);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
+[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
 '@
     }
 }
@@ -254,29 +256,37 @@ function Instalar-Dock {
     $sr = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3'
     $v = (Get-ItemProperty $sr -ErrorAction SilentlyContinue).Settings
     if ($v) { $v = [byte[]]$v.Clone(); $v[8] = 3; Set-Reg $sr Settings $v Binary }
-    # dock.ps1 e botoes.ps1 (bolinhas vermelha/amarela/verde) abrem a cada login
-    foreach ($s in 'dock', 'botoes') {
-        $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) "Mac Skin $s.lnk"
-        try {
-            $l = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-            $l.TargetPath = 'powershell.exe'; $l.WindowStyle = 7
-            $l.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\$s.ps1`""
-            $l.Save()
-            if ($bk.arquivos -notcontains $lnk) { [void]$bk.arquivos.Add($lnk) }
-        } catch { Log "  aviso: $s.ps1 não vai abrir sozinho no login ($($_.Exception.Message))" }
-    }
+    # o vigia abre dock e barra de menus a cada login e reabre o que cair
+    $ini = [Environment]::GetFolderPath('Startup')
+    foreach ($s in 'dock', 'botoes', 'barra') { Remove-Item (Join-Path $ini "Mac Skin $s.lnk") -ErrorAction SilentlyContinue }   # versões antigas
+    $lnk = Join-Path $ini 'Mac Skin.lnk'
+    try {
+        $l = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+        $l.TargetPath = 'powershell.exe'; $l.WindowStyle = 7
+        $l.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`""
+        $l.Save()
+        if ($bk.arquivos -notcontains $lnk) { [void]$bk.arquivos.Add($lnk) }
+    } catch { Log "  aviso: o Mac Skin não vai abrir sozinho no login ($($_.Exception.Message))" }
 }
 function Abrir-Dock {
-    foreach ($s in 'dock', 'botoes') {
-        if (Test-Path (Join-Path $Dir "$s.ps1")) {
-            Start-Process powershell.exe "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\$s.ps1`"" -WindowStyle Hidden
-        }
+    Remove-Item (Join-Path $Dir 'desligado') -ErrorAction SilentlyContinue
+    if (Test-Path (Join-Path $Dir 'vigia.ps1')) {
+        Start-Process powershell.exe "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`"" -WindowStyle Hidden
     }
 }
+# fecha pedindo (WM_CLOSE): assim dock e barra devolvem o espaço reservado e a barra do Windows volta
 function Fechar-Dock {
-    Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like '*dock.ps1*' -or $_.CommandLine -like '*botoes.ps1*' } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $ps = { Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1' } }
+    & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    try {
+        Win32
+        foreach ($t in 'Mac Skin Dock', 'Mac Skin Barra', 'Mac Skin Botoes') {
+            $h = [MacSkin.W]::FindWindow($null, $t)
+            if ($h -ne [IntPtr]::Zero) { [void][MacSkin.W]::PostMessage($h, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) }
+        }
+        Start-Sleep 2
+    } catch { Log "  aviso: fechando à força ($($_.Exception.Message))" }
+    & $ps | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
 # ---------- remoção ----------
@@ -344,5 +354,8 @@ switch ($Acao) {
     'claro' { Fixar-Tema 'claro'; Salvar-Backup }
     'escuro' { Fixar-Tema 'escuro'; Salvar-Backup }
     'automatico' { Fixar-Tema 'auto'; Salvar-Backup }
+    # desligar: fecha dock e barra de menus e não reabre nem no login (o resto do visual fica); ligar desfaz
+    'desligar' { Set-Content (Join-Path $Dir 'desligado') ''; Fechar-Dock; Log 'Mac Skin desligado' }
+    'ligar' { Abrir-Dock; Log 'Mac Skin ligado' }
     'auto' { Tema-Auto; Salvar-Backup }
 }

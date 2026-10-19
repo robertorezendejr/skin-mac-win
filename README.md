@@ -45,6 +45,12 @@ Depois copia tudo para `%LOCALAPPDATA%\MacSkin`, cria os atalhos no Iniciar e ap
 
 [dock.ps1](instalador/dock.ps1) é uma dock própria em WPF, sem instalar nada: vidro com desfoque (estilo Liquid Glass do macOS Golden Gate), ícones que crescem sob o mouse, pulo ao abrir, ponto nos apps abertos, Lixeira e some em tela cheia. A barra do Windows passa a se esconder sozinha e a dock reserva o espaço dela. Os itens são atalhos em `%LOCALAPPDATA%\MacSkin\dock` (botão direito na dock › Editar itens da Dock).
 
+### Barra de menus
+
+[barra.ps1](instalador/barra.ps1) é a barra de cima, como no Mac: menu do sistema (Sobre, Configurações, Bloquear, Suspender, Reiniciar, Desligar), nome do app ativo, bateria, Wi-Fi, volume e relógio. Wi-Fi e volume abrem as configurações rápidas (Win+A); o relógio abre notificações e calendário (Win+N).
+
+[vigia.ps1](instalador/vigia.ps1) abre a dock e a barra a cada login e reabre o que fechar. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
+
 ### Tema
 
 O padrão é o modo escuro fixo. Iniciar › Mac Skin › Modo claro / Modo escuro trocam e lembram a escolha (`tema.txt`); `macskin.ps1 -Acao automatico` volta ao 07h claro / 19h escuro. O Office passa a seguir o tema do Windows.
