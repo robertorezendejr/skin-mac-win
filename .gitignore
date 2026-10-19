@@ -1,0 +1,7 @@
+# Material da Apple (ícones e wallpaper): gerado localmente pelo build.sh, nunca publicado
+icones/
+instalador/payload/
+*.exe
+
+.DS_Store
+.env*
