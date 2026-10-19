@@ -35,6 +35,9 @@ SectionEnd
 
 Section "Dock do macOS com Liquid Glass (esconde a barra do Windows)" SecDock
   SetOutPath "$INSTDIR"
+  !if /FileExists "MacSkin.exe"   ; compilado no Windows por app\compilar.cmd
+    File "MacSkin.exe"
+  !endif
   File "dock.ps1"
   File "barra.ps1"
   File "botoes.ps1"

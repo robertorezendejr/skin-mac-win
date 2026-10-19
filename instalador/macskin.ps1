@@ -256,28 +256,34 @@ function Instalar-Dock {
     $sr = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3'
     $v = (Get-ItemProperty $sr -ErrorAction SilentlyContinue).Settings
     if ($v) { $v = [byte[]]$v.Clone(); $v[8] = 3; Set-Reg $sr Settings $v Binary }
-    # o vigia abre dock e barra de menus a cada login e reabre o que cair
+    # o vigia abre dock, barra de menus e botões a cada login e reabre se cair
     $ini = [Environment]::GetFolderPath('Startup')
     foreach ($s in 'dock', 'botoes', 'barra') { Remove-Item (Join-Path $ini "Mac Skin $s.lnk") -ErrorAction SilentlyContinue }   # versões antigas
     $lnk = Join-Path $ini 'Mac Skin.lnk'
     try {
         $l = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-        $l.TargetPath = 'powershell.exe'; $l.WindowStyle = 7
-        $l.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`""
+        $exe, $argumentos = Comando-Vigia
+        $l.TargetPath = $exe; $l.Arguments = $argumentos; $l.WindowStyle = 7
         $l.Save()
         if ($bk.arquivos -notcontains $lnk) { [void]$bk.arquivos.Add($lnk) }
     } catch { Log "  aviso: o Mac Skin não vai abrir sozinho no login ($($_.Exception.Message))" }
 }
+# MacSkin.exe nativo (um processo, leve) quando existe; senão, os scripts PowerShell
+function Comando-Vigia {
+    $nativo = Join-Path $Dir 'MacSkin.exe'
+    if (Test-Path $nativo) { return $nativo, '--vigia' }
+    return 'powershell.exe', "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`""
+}
 function Abrir-Dock {
     Remove-Item (Join-Path $Dir 'desligado') -ErrorAction SilentlyContinue
-    if (Test-Path (Join-Path $Dir 'vigia.ps1')) {
-        Start-Process powershell.exe "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`"" -WindowStyle Hidden
-    }
+    $exe, $argumentos = Comando-Vigia
+    if ($exe -ne 'powershell.exe' -or (Test-Path (Join-Path $Dir 'vigia.ps1'))) { Start-Process $exe $argumentos -WindowStyle Hidden }
 }
 # fecha pedindo (WM_CLOSE): assim dock e barra devolvem o espaço reservado e a barra do Windows volta
 function Fechar-Dock {
-    $ps = { Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1' } }
-    & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $ps = { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1') -or $_.Name -eq 'MacSkin.exe' } }
+    & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1|--vigia' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     try {
         Win32
         foreach ($t in 'Mac Skin Dock', 'Mac Skin Barra', 'Mac Skin Botoes') {

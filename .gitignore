@@ -5,3 +5,8 @@ instalador/payload/
 
 .DS_Store
 .env*
+
+# logs e saídas dos programas
+*.log
+*-erro.txt
+*-saida.txt
