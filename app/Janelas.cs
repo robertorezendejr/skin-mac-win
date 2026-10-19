@@ -119,6 +119,72 @@ namespace MacSkin
             return r;
         }
 
+        // logo em alta resolução de um app de pacote (Store, apps web instalados como o Google Keep).
+        // O ícone que o Windows entrega é o de 44 px, que esticado na dock fica borrado; o pacote traz versões
+        // maiores (scale-400, targetsize-256...). Caminho do pacote: registro do AppModel do usuário (sem admin).
+        static readonly Dictionary<string, string> logos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        public static string LogoDoPacote(string aumid)
+        {
+            string r;
+            if (string.IsNullOrEmpty(aumid) || !aumid.Contains("!") || !aumid.Contains("_")) return null;
+            if (logos.TryGetValue(aumid, out r)) return r;
+            r = null;
+            try
+            {
+                string familia = aumid.Substring(0, aumid.IndexOf('!')), appId = aumid.Substring(aumid.IndexOf('!') + 1);
+                string nome = familia.Substring(0, familia.LastIndexOf('_')), editor = familia.Substring(familia.LastIndexOf('_') + 1);
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages"))
+                {
+                    string pacote = k == null ? null : Array.Find(k.GetSubKeyNames(), n => n.StartsWith(nome + "_", StringComparison.OrdinalIgnoreCase) && n.EndsWith("_" + editor, StringComparison.OrdinalIgnoreCase));
+                    string raiz = null;
+                    if (pacote != null) using (var p = k.OpenSubKey(pacote)) raiz = p == null ? null : p.GetValue("PackageRootFolder") as string;
+                    if (raiz != null) r = MelhorLogo(raiz, appId);
+                }
+            }
+            catch { }
+            logos[aumid] = r;
+            return r;
+        }
+
+        static string MelhorLogo(string raiz, string appId)
+        {
+            var xml = new System.Xml.XmlDocument();
+            xml.Load(System.IO.Path.Combine(raiz, "AppxManifest.xml"));
+            System.Xml.XmlElement visual = null;
+            foreach (System.Xml.XmlElement app in xml.GetElementsByTagName("Application"))
+                if (app.GetAttribute("Id") == appId)
+                    foreach (System.Xml.XmlNode n in app.ChildNodes)
+                        if (n.LocalName == "VisualElements") visual = (System.Xml.XmlElement)n;
+            if (visual == null) return null;
+            // primeiro o ícone de app (Square44x44Logo, que vem em targetsize-256); o de 150 é um bloco com margem,
+            // fica pequeno na dock, então só serve se não houver ícone grande
+            string melhor = null; int maior = 0;
+            foreach (var atributo in new[] { "Square44x44Logo", "Square150x150Logo" })
+            {
+                string logo = visual.GetAttribute(atributo);
+                if (string.IsNullOrEmpty(logo)) continue;
+                string pasta = System.IO.Path.Combine(raiz, System.IO.Path.GetDirectoryName(logo));
+                string baseNome = System.IO.Path.GetFileNameWithoutExtension(logo);
+                if (!System.IO.Directory.Exists(pasta)) continue;
+                // variações: Logo.png, Logo.scale-400.png, Logo.targetsize-256_altform-unplated.png... (sem alto contraste
+                // e sem a versão para tema claro); no mesmo tamanho, a "unplated" (sem fundo) ganha
+                foreach (var f in System.IO.Directory.GetFiles(pasta, baseNome + "*.png"))
+                {
+                    if (f.IndexOf("contrast", StringComparison.OrdinalIgnoreCase) >= 0 || f.IndexOf("lightunplated", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    try
+                    {
+                        var d = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri(f), System.Windows.Media.Imaging.BitmapCreateOptions.DelayCreation, System.Windows.Media.Imaging.BitmapCacheOption.None);
+                        int w = d.Frames[0].PixelWidth;
+                        bool semFundo = f.IndexOf("unplated", StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (w > maior || (w == maior && semFundo)) { maior = w; melhor = f; }
+                    }
+                    catch { }
+                }
+                if (maior >= 128) break;   // ícone grande achado
+            }
+            return melhor;
+        }
+
         // nome do app para o rótulo da dock
         static readonly Dictionary<string, string> descricoes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public static string Nome(JanelaApp j)

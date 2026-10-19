@@ -1,0 +1,7 @@
+exe:c:\users\roberto.rezende\appdata\local\programs\antigravity ide\antigravity ide.exe	Antigravity IDE	skin-mac-win - Antigravity IDE - Arquivo executável .exe …	
+MSTeams_8wekyb3d8bbwe!MSTeams	Microsoft Teams	Chat | ROBERTO REZENDE DOS SANTOS JUNIOR (Você) | Microsoft Teams	C:\Program Files\WindowsApps\MSTeams_26260.1717.5229.7049_x64__8wekyb3d8bbwe\Images\TeamsForWorkNewAppList.scale-400.png
+MSEdge	Microsoft​ Edge	DOCUMENTOS SPF - Power BI e mais 3 páginas - Trabalho — Microsoft​ Edge	
+exe:c:\windows\explorer.exe	Windows Explorer	Downloads – Explorador de Arquivos	
+BlipStudioInc.BlipApp_eydxbjyejh39j!Blip	20261019_182126.jpg – Receiving from R11s – Blip	20261019_182126.jpg – Receiving from R11s – Blip	C:\Program Files\WindowsApps\BlipStudioInc.BlipApp_1.2.3.0_x64__eydxbjyejh39j\ConveyorMsixResources\Square150x150Logo.targetsize-256.png
+BlipStudioInc.BlipApp_eydxbjyejh39j!Blip	20261019_182126.jpg – Receiving from R11s – Blip	20261019_171051.jpg – Receiving from R11s – Blip	C:\Program Files\WindowsApps\BlipStudioInc.BlipApp_1.2.3.0_x64__eydxbjyejh39j\ConveyorMsixResources\Square150x150Logo.targetsize-256.png
+Microsoft.M365Companions_8wekyb3d8bbwe!Calendar	Calendar	Calendar	C:\Program Files\WindowsApps\Microsoft.M365Companions_2.2605.21000.0_x64__8wekyb3d8bbwe\Assets\Calendar\AppList.targetsize-256.png

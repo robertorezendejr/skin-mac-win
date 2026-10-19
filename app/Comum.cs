@@ -45,6 +45,12 @@ namespace MacSkin
         {
             try
             {
+                if (arq.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && File.Exists(arq))
+                {
+                    var b = new BitmapImage();
+                    b.BeginInit(); b.UriSource = new Uri(arq); b.CacheOption = BitmapCacheOption.OnLoad; b.EndInit();
+                    b.Freeze(); return b;
+                }
                 if (arq.EndsWith(".ico", StringComparison.OrdinalIgnoreCase) && File.Exists(arq))
                 {
                     var d = BitmapDecoder.Create(new Uri(arq), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);

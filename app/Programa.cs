@@ -21,6 +21,13 @@ namespace MacSkin
         {
             if (args.Length > 0 && args[0] == "--vigia") return Vigia();
             if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null);
+            if (args.Length > 0 && args[0] == "--janelas")   // diagnóstico: o que a dock enxerga como app aberto
+            {
+                var linhas = new System.Collections.Generic.List<string>();
+                foreach (var j in Janelas.Abertas()) linhas.Add(j.Chave + "\t" + Janelas.Nome(j) + "\t" + j.Titulo + "\t" + Janelas.LogoDoPacote(j.Aumid));
+                File.WriteAllLines(Path.Combine(Comum.Dir, "janelas.txt"), linhas);
+                return 0;
+            }
             return Abrir();
         }
 
