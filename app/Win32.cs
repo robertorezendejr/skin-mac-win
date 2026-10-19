@@ -74,13 +74,15 @@ namespace MacSkin
         }
 
         // barra de tarefas do Windows: oculta de vez (senão sobe por cima da dock quando o mouse encosta embaixo)
+        // (a "Shell_TrayWnd" do próprio Mac Skin, que recebe os ícones da bandeja, fica de fora)
+        static readonly uint Eu = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
         public static void BarraWindows(bool mostrar)
         {
             foreach (var c in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
             {
                 IntPtr h = IntPtr.Zero;
                 while ((h = FindWindowEx(IntPtr.Zero, h, c, null)) != IntPtr.Zero)
-                    if (IsWindowVisible(h) != mostrar) ShowWindow(h, mostrar ? 5 : 0);
+                    if (Pid(h) != Eu && IsWindowVisible(h) != mostrar) ShowWindow(h, mostrar ? 5 : 0);
             }
         }
 
@@ -88,7 +90,8 @@ namespace MacSkin
         [StructLayout(LayoutKind.Sequential)] struct APPBARDATA { public int cbSize; public IntPtr hWnd; public int msg; public int edge; public RECT rc; public IntPtr lParam; }
         [DllImport("shell32.dll")] static extern IntPtr SHAppBarMessage(int m, ref APPBARDATA d);
         // borda: 1 = em cima, 3 = embaixo
-        public static void Reservar(IntPtr h, int borda, int largura, int alturaTela, int faixa)
+        public static void Reservar(IntPtr h, int borda, int largura, int alturaTela, int faixa) { Bandeja.Direto(() => Reservar2(h, borda, largura, alturaTela, faixa)); }
+        static void Reservar2(IntPtr h, int borda, int largura, int alturaTela, int faixa)
         {
             var d = new APPBARDATA(); d.cbSize = Marshal.SizeOf(d); d.hWnd = h; d.edge = borda;
             SHAppBarMessage(0, ref d);
@@ -98,7 +101,7 @@ namespace MacSkin
             if (borda == 1) d.rc.B = d.rc.T + faixa; else d.rc.T = d.rc.B - faixa;
             SHAppBarMessage(3, ref d);
         }
-        public static void Liberar(IntPtr h) { var d = new APPBARDATA(); d.cbSize = Marshal.SizeOf(d); d.hWnd = h; SHAppBarMessage(1, ref d); }
+        public static void Liberar(IntPtr h) { Bandeja.Direto(() => { var d = new APPBARDATA(); d.cbSize = Marshal.SizeOf(d); d.hWnd = h; SHAppBarMessage(1, ref d); }); }
 
         // ---------- vidro (acrylic) e cantos do Windows 11 ----------
         [StructLayout(LayoutKind.Sequential)] struct ACCENT { public int State; public int Flags; public int Color; public int Anim; }
