@@ -1,5 +1,6 @@
 // Mac Skin: barra de menus no alto, como no macOS Golden Gate: sem fundo, itens brancos sobre o papel de parede.
-// Esquerda: menu do sistema e o app ativo. Direita: volume, rede, bateria, Bluetooth, Central de Controle e relógio.
+// Esquerda: menu do sistema e o app ativo. Direita: volume, rede, bateria, Bluetooth, Central de Controle (com os apps
+// em segundo plano) e relógio.
 // Reserva a faixa de cima (AppBar) e some em tela cheia.
 using System;
 using System.Collections.Generic;
@@ -32,7 +33,7 @@ namespace MacSkin
         IntPtr hwnd; int telaW, telaH;
         StackPanel esq, dir;
         TextBlock appAtivo, relogio, wifi, batTxt;
-        Border batNivel, itemBat;
+        Border batNivel, itemBat, central;
         Path batRaio;
         ContextMenu menuSis;
         readonly Dictionary<uint, string> nomes = new Dictionary<uint, string>();
@@ -98,8 +99,15 @@ namespace MacSkin
             bat.Children.Add(new Border { Width = 1.5, Height = 4, Margin = new Thickness(1, 0, 0, 0), CornerRadius = new CornerRadius(1), Background = Comum.Cor("#80FFFFFF"), VerticalAlignment = VerticalAlignment.Center });
             itemBat = Item(dir, bat, s => Abrir("ms-settings:batterysaver"));
             Item(dir, Glifo(0xE702, 14), s => Abrir("ms-settings:bluetooth"));
-            // Central de Controle: dois interruptores
-            Item(dir, Desenho("M3,0.75 H11 A2.25,2.25 0 0 1 11,5.25 H3 A2.25,2.25 0 0 1 3,0.75 Z M3,7.75 H11 A2.25,2.25 0 0 1 11,12.25 H3 A2.25,2.25 0 0 1 3,7.75 Z M3,1.5 A1.5,1.5 0 1 0 3.01,1.5 Z M11,8.5 A1.5,1.5 0 1 0 11.01,8.5 Z", 15, 13, false), s => Win32.Win(0x41));
+            // Central de Controle: dois interruptores; abre a caixa dos apps em segundo plano (a bandeja do Windows)
+            var painel = new PainelBandeja();
+            central = Item(dir, Desenho("M3,0.75 H11 A2.25,2.25 0 0 1 11,5.25 H3 A2.25,2.25 0 0 1 3,0.75 Z M3,7.75 H11 A2.25,2.25 0 0 1 11,12.25 H3 A2.25,2.25 0 0 1 3,7.75 Z M3,1.5 A1.5,1.5 0 1 0 3.01,1.5 Z M11,8.5 A1.5,1.5 0 1 0 11.01,8.5 Z", 15, 13, false),
+                s => { var b = (FrameworkElement)s; painel.Alternar(new Point(Janela.Left + b.TranslatePoint(new Point(b.ActualWidth, 0), Janela).X, Altura)); });
+            Bandeja.Ancora = () =>
+            {
+                var a = central.PointToScreen(new Point(0, 0)); var z = central.PointToScreen(new Point(central.ActualWidth, central.ActualHeight));
+                return new Win32.RECT { L = (int)a.X, T = (int)a.Y, R = (int)z.X, B = (int)z.Y };
+            };
             relogio = Rotulo("", FontWeights.Medium);
             Item(dir, relogio, s => Win32.Win(0x4E));
 

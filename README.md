@@ -47,7 +47,7 @@ Depois copia tudo para `%LOCALAPPDATA%\MacSkin`, cria os atalhos no Iniciar e ap
 
 ### Barra de menus
 
-[barra.ps1](instalador/barra.ps1) é a barra de cima, como no Mac: menu do sistema (Sobre, Configurações, Bloquear, Suspender, Reiniciar, Desligar), nome do app ativo, bateria, Wi-Fi, volume e relógio. Wi-Fi e volume abrem as configurações rápidas (Win+A); o relógio abre notificações e calendário (Win+N).
+[barra.ps1](instalador/barra.ps1) é a barra de cima, como no Mac: menu do sistema (Sobre, Configurações, Bloquear, Suspender, Reiniciar, Desligar), nome do app ativo, bateria, Wi-Fi, volume e relógio. Wi-Fi e volume abrem as configurações rápidas (Win+A); o relógio abre notificações e calendário (Win+N). O ícone da Central de Controle (os dois interruptores) abre a caixa dos apps em segundo plano, a mesma da setinha da bandeja do Windows: clique e botão direito funcionam como lá (o "Sair do Teams", por exemplo).
 
 [vigia.ps1](instalador/vigia.ps1) abre a dock e a barra a cada login e reabre o que fechar. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
 

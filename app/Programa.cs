@@ -54,6 +54,7 @@ namespace MacSkin
             app.DispatcherUnhandledException += (s, e) => { Comum.Log("macskin.log", "falha: " + e.Exception); e.Handled = true; };
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Comum.Log("macskin.log", "falha fatal: " + e.ExceptionObject);
 
+            Bandeja.Iniciar();   // antes da barra e da dock: as reservas de tela delas passam por aqui
             var barra = new Barra();
             var dock = new Dock();
             var botoes = new Botoes();
@@ -63,7 +64,7 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar();
+                barra.Fechar(); dock.Fechar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
