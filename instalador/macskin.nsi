@@ -36,7 +36,9 @@ SectionEnd
 Section "Dock do macOS com Liquid Glass (esconde a barra do Windows)" SecDock
   SetOutPath "$INSTDIR"
   File "dock.ps1"
+  File "barra.ps1"
   File "botoes.ps1"
+  File "vigia.ps1"
   StrCpy $Comp "$Comp,dock"
 SectionEnd
 

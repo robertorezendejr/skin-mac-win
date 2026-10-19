@@ -135,6 +135,12 @@ $rotulo = New-Object Windows.Controls.Border -Property @{ CornerRadius = 6; Padd
 [void]$raiz.Children.Add($dock); [void]$raiz.Children.Add($rotulo)
 $win.Content = $raiz
 
+# a dock não pega foco (WS_EX_NOACTIVATE); sem foco, clicar fora não fecha o menu.
+# Ao abrir um menu, a dock pega o foco: clicar fora a desativa e o menu fecha.
+function Ligar-Menu($m) {
+    $m.Add_Opened({ [void][MacSkin.Dock]::SetForegroundWindow($script:hwnd) })
+    $win.Add_Deactivated({ $m.IsOpen = $false }.GetNewClosure())
+}
 $menu = New-Object Windows.Controls.ContextMenu
 $m1 = New-Object Windows.Controls.MenuItem -Property @{ Header = 'Editar itens da Dock' }
 $m1.Add_Click({ Start-Process explorer.exe (Join-Path $Dir 'dock') })
@@ -145,6 +151,7 @@ $m2 = New-Object Windows.Controls.MenuItem -Property @{ Header = 'Fechar a Dock'
 $m2.Add_Click({ $win.Close() })
 [void]$menu.Items.Add($m1); [void]$menu.Items.Add($m3); [void]$menu.Items.Add($m2)
 $dock.ContextMenu = $menu
+Ligar-Menu $menu
 
 $script:els = New-Object Collections.ArrayList   # { Caixa; Ponto; Pulo; App; Centro; Atual; Alvo; Largura }
 function Novo-Item($app, $fonte) {
@@ -170,6 +177,7 @@ function Novo-Item($app, $fonte) {
         $mi.Add_Click({ param($s) Remover-Item $s.Tag })
         $caixa.ContextMenu = New-Object Windows.Controls.ContextMenu
         [void]$caixa.ContextMenu.Items.Add($mi)
+        Ligar-Menu $caixa.ContextMenu
     }
     [void]$linha.Children.Add($caixa); [void]$script:els.Add($el)
 }
@@ -345,8 +353,12 @@ $timerBarra = New-Object Windows.Threading.DispatcherTimer -Property @{ Interval
 $timerBarra.Add_Tick({ if (-not $script:mostrarBarra) { [MacSkin.Dock]::Barra($false) } })
 $timerBarra.Start()
 
+# erro inesperado vai para o log em vez de fechar a dock (se fechar mesmo assim, o vigia reabre)
+$win.Dispatcher.Add_UnhandledException({ param($s, $e) Log "falha: $($e.Exception.Message)"; $e.Handled = $true })
 Log "dock aberta com $($script:els.Count) itens"
 $vidro.Show()
 $win.Owner = $vidro   # a dock fica sempre na frente do vidro
-try { [void]$win.ShowDialog() } catch { Log "erro: $($_.Exception.Message)" }
+# Show + Dispatcher.Run (não ShowDialog: esconder uma janela de diálogo encerra o programa)
+$win.Add_Closed({ $win.Dispatcher.InvokeShutdown() })
+try { $win.Show(); [Windows.Threading.Dispatcher]::Run() } catch { Log "erro: $($_.Exception.Message)" }
 $mutex.ReleaseMutex()
