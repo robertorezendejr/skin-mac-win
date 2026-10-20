@@ -131,6 +131,22 @@ namespace MacSkin
             return SHQueryRecycleBin(null, ref i) == 0 && i.i64NumItems > 0;
         }
 
+        // janelas do Explorador abertas na Lixeira (pelo título, que é o nome da aba ativa)
+        public static List<IntPtr> JanelasLixeira()
+        {
+            var r = new List<IntPtr>();
+            EnumWindows((h, l) =>
+            {
+                if (IsWindowVisible(h) && Classe(h) == "CabinetWClass")
+                {
+                    string t = Titulo(h);
+                    if (t.StartsWith("Lixeira", StringComparison.OrdinalIgnoreCase) || t.StartsWith("Recycle Bin", StringComparison.OrdinalIgnoreCase)) r.Add(h);
+                }
+                return true;
+            }, IntPtr.Zero);
+            return r;
+        }
+
         // ---------- bateria ----------
         [StructLayout(LayoutKind.Sequential)] public struct ENERGIA { public byte AC, Flags, Percent, Saver; public int Life, Full; }
         [DllImport("kernel32.dll")] public static extern bool GetSystemPowerStatus(out ENERGIA e);

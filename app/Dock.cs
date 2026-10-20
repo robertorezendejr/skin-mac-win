@@ -292,6 +292,14 @@ namespace MacSkin
         {
             try
             {
+                // Lixeira: um clique abre, outro clique fecha
+                if (el == lixeira)
+                {
+                    var abertas = Win32.JanelasLixeira();
+                    if (abertas.Count > 0) foreach (var j in abertas) Win32.PostMessage(j, 0x0010, IntPtr.Zero, IntPtr.Zero);   // WM_CLOSE
+                    else { Process.Start("explorer.exe", "shell:RecycleBinFolder"); Pular(el); }
+                    return;
+                }
                 // já aberto: uma janela minimizada volta primeiro; com o app já na frente, alterna para a próxima
                 // janela dele; senão traz a de cima
                 if (el.Janelas.Count > 0)
