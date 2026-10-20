@@ -234,6 +234,17 @@ namespace MacSkin
                 {
                     m.Items.Clear();
                     Action<string, Action> op = (t, a) => { var mi = new MenuItem { Header = t }; mi.Click += delegate { a(); }; m.Items.Add(mi); };
+                    // várias janelas do app: uma por linha, como no Mac (minimizadas também)
+                    if (el.Janelas.Count > 1)
+                    {
+                        foreach (var j in el.Janelas)
+                        {
+                            var h = j.H;
+                            string t = Win32.Titulo(h); if (t.Length == 0) t = j.Titulo;
+                            op((Win32.IsIconic(h) ? "◦ " : "") + (t.Length > 70 ? t.Substring(0, 70) + "…" : t).Replace("_", "__"), () => Trazer(h));
+                        }
+                        m.Items.Add(new Separator());
+                    }
                     if (el.Fixo) op("Remover da Dock", () => Remover(el));
                     else { op("Manter na Dock", () => ManterNaDock(el)); op("Não mostrar na Dock", () => Ocultar(el)); }
                     if (el.Janelas.Count > 0) { m.Items.Add(new Separator()); op("Encerrar", () => Encerrar(el)); }
@@ -281,12 +292,14 @@ namespace MacSkin
         {
             try
             {
-                // já aberto: traz a janela do próprio app (a de cima primeiro); minimizada, restaura
+                // já aberto: uma janela minimizada volta primeiro; com o app já na frente, alterna para a próxima
+                // janela dele; senão traz a de cima
                 if (el.Janelas.Count > 0)
                 {
-                    var j = el.Janelas[0].H;
-                    if (Win32.IsIconic(j)) Win32.ShowWindow(j, 9);
-                    Win32.SetForegroundWindow(j); return;
+                    var fg = Win32.GetForegroundWindow();
+                    var alvo = el.Janelas.FirstOrDefault(x => Win32.IsIconic(x.H));
+                    if (alvo == null && el.Janelas.Count > 1 && el.Janelas.Any(x => x.H == fg)) alvo = el.Janelas[el.Janelas.Count - 1];
+                    Trazer((alvo ?? el.Janelas[0]).H); return;
                 }
                 if (el.Exe == "explorer")   // o Finder da dock é o nosso; o Explorador continua no Win+E
                 {
@@ -298,6 +311,12 @@ namespace MacSkin
                 Pular(el);
             }
             catch (Exception e) { Log("abrir " + el.Nome + ": " + e.Message); }
+        }
+
+        static void Trazer(IntPtr j)
+        {
+            if (Win32.IsIconic(j)) Win32.ShowWindow(j, 9);
+            Win32.SetForegroundWindow(j);
         }
 
         // tira o ícone na hora e apaga o atalho da pasta da dock (o app em si não é tocado; se estiver aberto,
