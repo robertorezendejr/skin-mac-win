@@ -1,5 +1,6 @@
 // Mac Skin Finder: navegador de arquivos no visual do Finder do macOS (abre com MacSkin.exe --finder [pasta]).
-// Barra lateral com vidro, voltar/avançar, título, modos Lista/Ícones/Galeria, busca, caminho embaixo.
+// Barra lateral com vidro, abas (Ctrl+T), voltar/avançar (também nos botões do mouse), título, modos Lista/Ícones/Galeria,
+// busca, caminho embaixo (clicável e editável, para copiar e colar).
 // Arquivos de verdade do Windows: abrir, copiar/recortar/colar, arrastar, renomear, Lixeira, nova pasta,
 // Propriedades e "Mostrar no Explorador" para o que não estiver aqui.
 using System;
@@ -60,14 +61,19 @@ namespace MacSkin
         ListView lista; ListBox icones;
         StackPanel lateral, caminhoBarra;
         TextBlock titulo;
-        TextBox busca;
+        TextBox busca, endereco;
         Button voltar, avancar;
         ToggleButton vLista, vIcones, vGaleria;
         readonly ObservableCollection<Entrada> itens = new ObservableCollection<Entrada>();
         ICollectionView visao;
         string atual;
-        readonly List<string> historico = new List<string>();
+        List<string> historico = new List<string>();
         int pos = -1;
+        // cada aba guarda o seu histórico; a ativa usa os campos acima
+        class Aba { public List<string> Historico = new List<string>(); public int Pos = -1; }
+        readonly List<Aba> abas = new List<Aba>();
+        Aba ativa;
+        UniformGrid abasGrade; Border abasFundo;
         string modo = "lista";
         string ordem = "Nome"; bool crescente = true;
         FileSystemWatcher vigia;
@@ -83,7 +89,10 @@ namespace MacSkin
             w = (Window)XamlReader.Parse(Xaml);
             lista = (ListView)w.FindName("lista"); icones = (ListBox)w.FindName("icones");
             lateral = (StackPanel)w.FindName("lateral"); caminhoBarra = (StackPanel)w.FindName("caminho");
-            titulo = (TextBlock)w.FindName("titulo"); busca = (TextBox)w.FindName("busca");
+            titulo = (TextBlock)w.FindName("titulo"); busca = (TextBox)w.FindName("busca"); endereco = (TextBox)w.FindName("endereco");
+            abasGrade = (UniformGrid)w.FindName("abas"); abasFundo = (Border)w.FindName("abasFundo");
+            ativa = new Aba(); historico = ativa.Historico; abas.Add(ativa);
+            ((Button)w.FindName("novaAba")).Click += delegate { NovaAba(atual); };
             voltar = (Button)w.FindName("voltar"); avancar = (Button)w.FindName("avancar");
             vLista = (ToggleButton)w.FindName("vLista"); vIcones = (ToggleButton)w.FindName("vIcones"); vGaleria = (ToggleButton)w.FindName("vGaleria");
 
@@ -109,6 +118,14 @@ namespace MacSkin
             };
 
             busca.TextChanged += delegate { Filtrar(); };
+            // caminho embaixo: clicar fora dos nomes (ou Ctrl+L / Alt+D) vira texto para copiar, colar ou digitar, como no Windows
+            ((Border)w.FindName("caminhoFundo")).MouseLeftButtonDown += (s, e) => { if (endereco.Visibility != Visibility.Visible) { EditarCaminho(); e.Handled = true; } };
+            endereco.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter) { e.Handled = true; IrPara(endereco.Text); }
+                else if (e.Key == Key.Escape) { e.Handled = true; FecharCaminho(); lista.Focus(); }
+            };
+            endereco.LostKeyboardFocus += delegate { FecharCaminho(); };
             busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) BuscarTudo(busca.Text); if (e.Key == Key.Escape) { busca.Text = ""; lista.Focus(); } };
 
             foreach (var c in new Selector[] { lista, icones })
@@ -130,16 +147,29 @@ namespace MacSkin
                 string campo = (string)h.Column.Header == "Tamanho" ? "Tamanho" : (string)h.Column.Header == "Tipo" ? "Tipo" : (string)h.Column.Header == "Nome" ? "Nome" : "Data";
                 crescente = ordem == campo ? !crescente : true; ordem = campo; Ordenar();
             }));
+            // botões laterais do mouse: voltar e avançar, como no Explorador
+            w.PreviewMouseDown += (s, e) =>
+            {
+                if (e.ChangedButton == MouseButton.XButton1) { voltar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); e.Handled = true; }
+                else if (e.ChangedButton == MouseButton.XButton2) { avancar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); e.Handled = true; }
+            };
             w.PreviewKeyDown += (s, e) =>
             {
                 bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
                 if (ctrl && e.Key == Key.F) { busca.Focus(); busca.SelectAll(); e.Handled = true; }
                 else if (ctrl && e.Key == Key.N && (Keyboard.Modifiers & ModifierKeys.Shift) == 0) { NovaJanela(atual); e.Handled = true; }
-                else if (ctrl && e.Key == Key.W) { w.Close(); e.Handled = true; }
+                else if (ctrl && e.Key == Key.W) { FecharAba(ativa); e.Handled = true; }
+                else if (ctrl && e.Key == Key.T) { NovaAba(atual); e.Handled = true; }
+                else if (ctrl && e.Key == Key.Tab && abas.Count > 1)
+                {
+                    int i = abas.IndexOf(ativa) + ((Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? abas.Count - 1 : 1);
+                    Trocar(abas[i % abas.Count]); e.Handled = true;
+                }
                 else if (alt && e.SystemKey == Key.Left) { voltar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); e.Handled = true; }
                 else if (alt && e.SystemKey == Key.Right) { avancar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); e.Handled = true; }
                 else if (alt && e.SystemKey == Key.Up) { Subir(); e.Handled = true; }
                 else if (e.Key == Key.F5) { Navegar(atual, false); e.Handled = true; }
+                else if ((ctrl && e.Key == Key.L) || (alt && e.SystemKey == Key.D)) { EditarCaminho(); e.Handled = true; }
             };
 
             recarregar = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -148,7 +178,9 @@ namespace MacSkin
             w.SourceInitialized += delegate
             {
                 hwnd = new WindowInteropHelper(w).Handle;
-                HwndSource.FromHwnd(hwnd).CompositionTarget.BackgroundColor = Colors.Transparent;
+                var src = HwndSource.FromHwnd(hwnd);
+                src.CompositionTarget.BackgroundColor = Colors.Transparent;
+                src.AddHook(Borda);
                 Vidro();
             };
             w.Closed += delegate { if (vigia != null) vigia.Dispose(); };
@@ -177,6 +209,21 @@ namespace MacSkin
             r["Campo"] = Comum.Cor(claro ? "#12000000" : "#1FFFFFFF");
             r["Borda"] = Comum.Cor(claro ? "#1A000000" : "#14FFFFFF");
             r["Azul"] = Comum.Cor("#FF0A84FF");
+        }
+
+        // bordas e cantos redimensionam antes de qualquer botão: sem isso os botões da barra de cima (que vão até a
+        // beirada) tomam a borda e a janela não estica por ali
+        IntPtr Borda(IntPtr h, int m, IntPtr wp, IntPtr lp, ref bool tratado)
+        {
+            if (m != 0x84 || w.WindowState == WindowState.Maximized) return IntPtr.Zero;   // WM_NCHITTEST
+            long v = lp.ToInt64();
+            int x = (short)(v & 0xFFFF), y = (short)((v >> 16) & 0xFFFF);
+            Win32.RECT r; Win32.GetWindowRect(h, out r);
+            int b = (int)(6 * PresentationSource.FromVisual(w).CompositionTarget.TransformToDevice.M11);
+            bool esq = x < r.L + b, dir = x >= r.R - b, cima = y < r.T + b, baixo = y >= r.B - b;
+            int ht = cima && esq ? 13 : cima && dir ? 14 : baixo && esq ? 16 : baixo && dir ? 17 : esq ? 10 : dir ? 11 : cima ? 12 : baixo ? 15 : 0;
+            if (ht == 0) return IntPtr.Zero;
+            tratado = true; return new IntPtr(ht);
         }
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int n);
@@ -211,7 +258,7 @@ namespace MacSkin
             {
                 string p = Environment.GetEnvironmentVariable(var);
                 if (!string.IsNullOrEmpty(p) && Directory.Exists(p) && !lateral.Children.OfType<FrameworkElement>().Any(x => (x.Tag as string) == p))
-                    Atalho("", System.IO.Path.GetFileName(p).Replace("OneDrive - ", "OneDrive · "), p);
+                    GrupoNuvem(System.IO.Path.GetFileName(p).Replace("OneDrive - ", "OneDrive · "), p);
             }
             Atalho("", Environment.UserName, Pasta(Environment.SpecialFolder.UserProfile));
             foreach (var d in DriveInfo.GetDrives().Where(d => d.IsReady))
@@ -226,9 +273,49 @@ namespace MacSkin
             lateral.Children.Add(new TextBlock { Text = nome, FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(14, 14, 0, 4), Foreground = (Brush)w.Resources["TextoSec"] });
         }
 
-        void Atalho(string glifo, string nome, string destino)
+        // OneDrive vira um grupo expansível com as subpastas, incluindo os atalhos de bibliotecas do SharePoint
+        // (pastas somente-leitura na raiz), como o painel de navegação do Explorador
+        static readonly HashSet<string> gruposFechados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void GrupoNuvem(string nome, string raiz)
         {
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            string[] pastas;
+            try
+            {
+                pastas = new DirectoryInfo(raiz).GetDirectories()
+                    .Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0)
+                    .OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(d => d.FullName).ToArray();
+            }
+            catch { pastas = new string[0]; }
+
+            bool aberto = !gruposFechados.Contains(raiz);
+            var seta = new TextBlock { Text = aberto ? "" : "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 9, Width = 14, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)w.Resources["TextoSec"], Background = Brushes.Transparent, Visibility = pastas.Length > 0 ? Visibility.Visible : Visibility.Hidden };
+            var pai = Atalho("", nome, raiz, 0, seta);
+            var filhos = new List<Border>();
+            foreach (var p in pastas)
+            {
+                bool sharepoint;
+                try { sharepoint = (File.GetAttributes(p) & FileAttributes.ReadOnly) != 0; } catch { sharepoint = false; }
+                var f = Atalho(sharepoint ? "" : "", System.IO.Path.GetFileName(p), p, 18, null);
+                f.Visibility = aberto ? Visibility.Visible : Visibility.Collapsed;
+                filhos.Add(f);
+            }
+            seta.MouseLeftButtonUp += (s, e) =>
+            {
+                aberto = !aberto;
+                if (aberto) gruposFechados.Remove(raiz); else gruposFechados.Add(raiz);
+                seta.Text = aberto ? "" : "";
+                foreach (var f in filhos) f.Visibility = aberto ? Visibility.Visible : Visibility.Collapsed;
+                e.Handled = true;   // só expande/recolhe, não navega
+            };
+        }
+
+        Border Atalho(string glifo, string nome, string destino) { return Atalho(glifo, nome, destino, 0, null); }
+
+        Border Atalho(string glifo, string nome, string destino, double recuo, UIElement seta)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(recuo, 0, 0, 0) };
+            if (seta != null) { sp.Margin = new Thickness(-8, 0, 0, 0); sp.Children.Add(seta); }
             sp.Children.Add(new TextBlock { Text = glifo, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 15, Width = 22, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)w.Resources["Azul"] });
             sp.Children.Add(new TextBlock { Text = nome, FontSize = 13, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             var b = new Border { Child = sp, Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(8, 1, 8, 1), CornerRadius = new CornerRadius(6), Background = Brushes.Transparent, Tag = destino };
@@ -243,6 +330,7 @@ namespace MacSkin
             b.AllowDrop = destino != Recentes && !destino.StartsWith("shell:");
             b.Drop += (s, e) => { ReceberArquivos(e, destino); e.Handled = true; };
             lateral.Children.Add(b);
+            return b;
         }
 
         void MarcarLateral()
@@ -266,6 +354,7 @@ namespace MacSkin
             titulo.Text = destino == Recentes ? "Recentes" : NomePasta(destino);
             w.Title = titulo.Text + " — Finder";
             if (busca.Text.Length > 0) busca.Text = "";
+            ativa.Pos = pos; MontarAbas();
             MarcarLateral(); MontarCaminho(); Vigiar();
             Carregar(destino, false);
         }
@@ -292,6 +381,95 @@ namespace MacSkin
             var partes = new List<string>();
             for (var d = new DirectoryInfo(atual); d != null; d = d.Parent) partes.Insert(0, d.FullName);
             for (int i = 0; i < partes.Count; i++) Pedaco(NomePasta(partes[i]), partes[i], i == partes.Count - 1);
+        }
+
+        // ---------- abas ----------
+        void NovaAba(string pasta)
+        {
+            ativa.Pos = pos;
+            var a = new Aba(); abas.Insert(abas.IndexOf(ativa) + 1, a);
+            ativa = a; historico = a.Historico; pos = -1;
+            Navegar(pasta ?? Pasta(Environment.SpecialFolder.UserProfile, "Downloads"), true);
+        }
+
+        void Trocar(Aba a)
+        {
+            if (a == ativa) return;
+            ativa.Pos = pos;
+            ativa = a; historico = a.Historico; pos = a.Pos;
+            Navegar(historico[pos], false);
+        }
+
+        void FecharAba(Aba a)
+        {
+            if (abas.Count == 1) { w.Close(); return; }
+            int i = abas.IndexOf(a); abas.Remove(a);
+            if (a != ativa) { MontarAbas(); return; }
+            var n = abas[Math.Min(i, abas.Count - 1)];
+            ativa = n; historico = n.Historico; pos = n.Pos;
+            Navegar(historico[pos], false);
+        }
+
+        void MontarAbas()
+        {
+            abasGrade.Children.Clear();
+            abasFundo.Visibility = abas.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            if (abas.Count < 2) return;
+            foreach (var a in abas)
+            {
+                var aba = a; bool eh = a == ativa;
+                string p = a.Historico[a.Pos];
+                var nome = new TextBlock
+                {
+                    Text = p == Recentes ? "Recentes" : NomePasta(p), FontSize = 12, Margin = new Thickness(22, 0, 22, 0), TextTrimming = TextTrimming.CharacterEllipsis,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = (Brush)w.Resources[eh ? "Texto" : "TextoSec"], FontWeight = eh ? FontWeights.SemiBold : FontWeights.Normal
+                };
+                var x = new TextBlock
+                {
+                    Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 9, Padding = new Thickness(5), Margin = new Thickness(3, 0, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)w.Resources["TextoSec"],
+                    Background = Brushes.Transparent, ToolTip = "Fechar aba", Visibility = eh ? Visibility.Visible : Visibility.Hidden
+                };
+                x.MouseLeftButtonDown += (s, e) => { e.Handled = true; FecharAba(aba); };
+                var g = new Grid(); g.Children.Add(nome); g.Children.Add(x);
+                var b = new Border
+                {
+                    Child = g, Height = 26, Margin = new Thickness(2, 0, 2, 0), CornerRadius = new CornerRadius(6), ToolTip = p == Recentes ? null : p,
+                    Background = eh ? (Brush)w.Resources["Fundo"] : Brushes.Transparent
+                };
+                b.MouseEnter += delegate { x.Visibility = Visibility.Visible; if (!eh) b.Background = (Brush)w.Resources["Hover"]; };
+                b.MouseLeave += delegate { if (!eh) { x.Visibility = Visibility.Hidden; b.Background = Brushes.Transparent; } };
+                b.MouseLeftButtonDown += delegate { Trocar(aba); };
+                b.MouseUp += (s, e) => { if (e.ChangedButton == MouseButton.Middle) FecharAba(aba); };   // botão do meio fecha, como no navegador
+                abasGrade.Children.Add(b);
+            }
+        }
+
+        void EditarCaminho()
+        {
+            endereco.Text = atual == Recentes ? "" : atual;
+            caminhoBarra.Visibility = Visibility.Hidden; endereco.Visibility = Visibility.Visible;
+            endereco.Focus();
+            w.Dispatcher.BeginInvoke(new Action(endereco.SelectAll), DispatcherPriority.Input);   // depois do clique, senão ele desfaz a seleção
+        }
+
+        void FecharCaminho()
+        {
+            if (endereco.Visibility != Visibility.Visible) return;
+            endereco.Visibility = Visibility.Collapsed; caminhoBarra.Visibility = Visibility.Visible;
+        }
+
+        // caminho digitado ou colado: pasta abre aqui; arquivo abre no app dele
+        void IrPara(string texto)
+        {
+            string p = Environment.ExpandEnvironmentVariables(texto.Trim().Trim('"'));
+            FecharCaminho(); lista.Focus();
+            if (p.Length == 0) return;
+            if (p.Length == 2 && p[1] == ':') p += "\\";
+            if (Directory.Exists(p)) Navegar(System.IO.Path.GetFullPath(p), true);
+            else if (File.Exists(p)) { try { Process.Start(p); } catch (Exception ex) { Log("abrir " + p + ": " + ex.Message); } }
+            else MessageBox.Show(w, "Não foi possível encontrar:\n" + p, "Finder");
         }
 
         void Pedaco(string nome, string destino, bool ultimo)
@@ -540,6 +718,7 @@ namespace MacSkin
             bool tem = sel.Count > 0, um = sel.Count == 1, pastaReal = atual != Recentes;
             op("Abrir", AbrirSelecionados, tem);
             op("Abrir com…", () => Shell.AbrirCom(sel[0].Caminho), um && !sel[0].EhPasta);
+            op("Abrir em Nova Aba", () => { foreach (var e in sel.Where(x => x.EhPasta)) NovaAba(e.Caminho); }, sel.Any(x => x.EhPasta));
             op("Abrir em Nova Janela", () => { foreach (var e in sel.Where(x => x.EhPasta)) NovaJanela(e.Caminho); }, sel.Any(x => x.EhPasta));
             m.Items.Add(new Separator());
             op("Mover para o Lixo", () => Lixeira(false), tem);
@@ -859,7 +1038,7 @@ namespace MacSkin
     <TextBlock Text='Finder' Margin='18,16,0,0' FontWeight='SemiBold' Foreground='{DynamicResource TextoSec}' IsHitTestVisible='False'/>
 
     <Grid Grid.Column='1' Background='{DynamicResource Fundo}'>
-      <Grid.RowDefinitions><RowDefinition Height='52'/><RowDefinition Height='*'/><RowDefinition Height='30'/></Grid.RowDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height='52'/><RowDefinition Height='Auto'/><RowDefinition Height='*'/><RowDefinition Height='30'/></Grid.RowDefinitions>
       <!-- barra de cima -->
       <DockPanel Margin='10,0,0,0' LastChildFill='False'>
         <Border DockPanel.Dock='Left' Background='{DynamicResource Pilula}' CornerRadius='15' VerticalAlignment='Center' Padding='2'>
@@ -890,7 +1069,7 @@ namespace MacSkin
       </DockPanel>
 
       <!-- lista -->
-      <ListView x:Name='lista' Grid.Row='1' BorderThickness='0' Background='Transparent' AlternationCount='2' SelectionMode='Extended'
+      <ListView x:Name='lista' Grid.Row='2' BorderThickness='0' Background='Transparent' AlternationCount='2' SelectionMode='Extended'
                 ItemContainerStyle='{StaticResource Linha}' VirtualizingPanel.IsVirtualizing='True' VirtualizingPanel.VirtualizationMode='Recycling'
                 ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListView.View><GridView>
@@ -906,14 +1085,21 @@ namespace MacSkin
         </GridView></ListView.View>
       </ListView>
       <!-- ícones e galeria -->
-      <ListBox x:Name='icones' Grid.Row='1' Visibility='Collapsed' BorderThickness='0' Background='Transparent' SelectionMode='Extended' Tag='icones' Padding='12'
+      <ListBox x:Name='icones' Grid.Row='2' Visibility='Collapsed' BorderThickness='0' Background='Transparent' SelectionMode='Extended' Tag='icones' Padding='12'
                ItemContainerStyle='{StaticResource Bloco}' ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
       </ListBox>
 
+      <!-- abas (só com duas ou mais, como no Mac) -->
+      <Border x:Name='abasFundo' Grid.Row='1' Visibility='Collapsed' Background='{DynamicResource Pilula}' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,1' Padding='4,3'>
+        <DockPanel><Button x:Name='novaAba' DockPanel.Dock='Right' Style='{StaticResource Plano}' ToolTip='Nova aba (Ctrl+T)' Margin='4,0,0,0'>
+            <TextBlock FontFamily='{StaticResource Ico}' Text='&#xE710;' FontSize='11' Foreground='{DynamicResource Texto}'/></Button>
+          <UniformGrid x:Name='abas' Rows='1'/></DockPanel></Border>
       <!-- caminho -->
-      <Border Grid.Row='2' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,0'>
-        <StackPanel x:Name='caminho' Orientation='Horizontal' Margin='10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/></Border>
+      <Border x:Name='caminhoFundo' Grid.Row='3' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,0' Background='Transparent'>
+        <Grid><StackPanel x:Name='caminho' Orientation='Horizontal' Margin='10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/>
+          <TextBox x:Name='endereco' Visibility='Collapsed' Margin='8,0' Padding='4,2' VerticalAlignment='Center' FontSize='11.5' Background='{DynamicResource Campo}' BorderThickness='0'
+                   Foreground='{DynamicResource Texto}' CaretBrush='{DynamicResource Texto}'/></Grid></Border>
     </Grid>
   </Grid>
 </Window>";
