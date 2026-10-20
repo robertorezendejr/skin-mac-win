@@ -131,8 +131,58 @@ namespace MacSkin
         // ---------- achar os botões (fora da thread da tela) ----------
         static Botao[] Medir(IntPtr h, Win32.RECT r)
         {
-            try { return MedirUia(h, r) ?? MedirDwm(h, r); }
+            try { return MedirUia(h, r) ?? (MedirBarraPropria(h, r) ?? MedirDwm(h, r)); }
             catch (Exception e) { Log("medir: " + e.Message); return null; }
+        }
+
+        // apps que desenham a própria barra de título e não expõem os botões no UI Automation: a área que o Windows
+        // informa fica acima e à esquerda dos botões de verdade. Medido na tela, por classe da janela: largura e
+        // altura de cada botão (sem escala), encostado no topo e na borda direita visíveis da janela.
+        static readonly Dictionary<string, Size> BarrasProprias = new Dictionary<string, Size>
+        {
+            { "TeamsWebView", new Size(44, 47) },       // Teams novo
+            { "AcrobatSDIWindow", new Size(61, 42) },   // Adobe Acrobat / Reader
+        };
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+        static Botao[] MedirBarraPropria(IntPtr h, Win32.RECT r)
+        {
+            Size t;
+            if (!BarrasProprias.TryGetValue(Win32.Classe(h), out t)) return null;
+            uint dpi = 96; try { dpi = GetDpiForWindow(h); } catch { }
+            double e = (dpi == 0 ? 96 : dpi) / 96.0, l = Math.Round(t.Width * e), a = Math.Round(t.Height * e);
+            var v = Win32.Visivel(h);
+            a = AlturaBarra(h, r, v, l, e) ?? a;   // a janela de reunião do Teams tem a barra mais baixa que a principal
+            return new[] { 0, 1 }.Select(i => new Botao { Tipo = i, DxDireita = r.R - (v.R - (3 - i) * l), DyTopo = v.T - r.T, L = l, A = a }).ToArray();
+        }
+
+        // altura real da barra de título: desce pela coluna logo dentro do botão de minimizar (sem desenho nenhum)
+        // até a cor mudar. A janela é capturada uma vez por tamanho, fora da thread da tela.
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
+        static double? AlturaBarra(IntPtr h, Win32.RECT r, Win32.RECT v, double l, double e)
+        {
+            try
+            {
+                int x = (int)(v.R - 3 * l + 4) - r.L, topo = v.T - r.T, max = (int)(90 * e);
+                if (x < 0 || r.R - r.L <= x || r.B - r.T <= topo + max) return null;
+                using (var bmp = new System.Drawing.Bitmap(r.R - r.L, topo + max))
+                {
+                    using (var g = System.Drawing.Graphics.FromImage(bmp))
+                    {
+                        IntPtr dc = g.GetHdc();
+                        try { if (!PrintWindow(h, dc, 2)) return null; }   // 2 = PW_RENDERFULLCONTENT (apps com DirectComposition)
+                        finally { g.ReleaseHdc(dc); }
+                    }
+                    var c0 = bmp.GetPixel(x, topo + 2);
+                    for (int y = topo + 3; y < topo + max; y++)
+                    {
+                        var c = bmp.GetPixel(x, y);
+                        if (Math.Abs(c.R - c0.R) + Math.Abs(c.G - c0.G) + Math.Abs(c.B - c0.B) > 18)
+                            return y - topo >= 20 * e ? y - topo : (double?)null;
+                    }
+                }
+            }
+            catch (Exception ex) { Log("altura da barra: " + ex.Message); }
+            return null;
         }
 
         static readonly System.Windows.Automation.Condition CondBotao = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button);

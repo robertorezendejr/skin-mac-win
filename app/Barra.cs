@@ -1,4 +1,4 @@
-// Mac Skin: barra de menus no alto, como no macOS Golden Gate: sem fundo, itens brancos sobre o papel de parede.
+﻿// Mac Skin: barra de menus no alto, como no macOS Golden Gate: sem fundo, itens brancos sobre o papel de parede.
 // Esquerda: menu do sistema e o app ativo. Direita: volume, rede, bateria, Bluetooth, Central de Controle (com os apps
 // em segundo plano) e relógio.
 // Reserva a faixa de cima (AppBar) e some em tela cheia.
@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -225,6 +226,10 @@ namespace MacSkin
                     int pct = int.Parse(m.Groups[2].Value);
                     wifiGlifo = pct >= 75 ? 0xE701 : pct >= 50 ? 0xE874 : pct >= 25 ? 0xE873 : 0xE872;
                 }
+                // o netsh só mostra o sinal com a Localização ligada no Windows; sem ela, um Wi-Fi conectado
+                // ainda aparece aqui, só que sem a força do sinal (fica cheio)
+                else if (NetworkInterface.GetAllNetworkInterfaces().Any(n => n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && n.OperationalStatus == OperationalStatus.Up))
+                    wifiGlifo = 0xE701;
                 else wifiGlifo = NetworkInterface.GetIsNetworkAvailable() ? 0xE839 : 0xF384;   // cabo / sem rede
             }
             catch (Exception ex) { Log("wifi: " + ex.Message); }
