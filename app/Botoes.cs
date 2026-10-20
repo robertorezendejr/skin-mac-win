@@ -73,6 +73,7 @@ namespace MacSkin
                 if (p.Y > r.T + 80 || p.X < r.R - 260) { Esconder(); return; }
                 string c = Win32.Classe(h);
                 if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || Win32.Titulo(h).StartsWith("Mac Skin")) { Esconder(); return; }
+                if (DoMacSkin(h)) { Esconder(); return; }   // o Finder próprio já tem os botões com as cores do macOS
 
                 string chave = h.ToInt64() + ":" + (r.R - r.L) + "x" + (r.B - r.T) + ":" + Win32.IsZoomed(h);
                 Botao[] bts;
@@ -110,6 +111,21 @@ namespace MacSkin
                 if (!visivel) { Janela.Visibility = Visibility.Visible; visivel = true; }
             }
             catch (Exception e) { Log("erro: " + e.Message); }
+        }
+
+        // janelas do próprio MacSkin (Finder roda em outro processo, com --finder): pid -> é nosso?
+        readonly Dictionary<uint, bool> nossos = new Dictionary<uint, bool>();
+        bool DoMacSkin(IntPtr h)
+        {
+            uint pid = Win32.Pid(h); bool nosso;
+            if (!nossos.TryGetValue(pid, out nosso))
+            {
+                try { nosso = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.Equals("MacSkin", StringComparison.OrdinalIgnoreCase); }
+                catch { nosso = false; }
+                if (nossos.Count > 300) nossos.Clear();
+                nossos[pid] = nosso;
+            }
+            return nosso;
         }
 
         // ---------- achar os botões (fora da thread da tela) ----------

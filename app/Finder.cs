@@ -89,6 +89,9 @@ namespace MacSkin
             w = (Window)XamlReader.Parse(Xaml);
             lista = (ListView)w.FindName("lista"); icones = (ListBox)w.FindName("icones");
             lateral = (StackPanel)w.FindName("lateral"); caminhoBarra = (StackPanel)w.FindName("caminho");
+            var colLateral = (ColumnDefinition)w.FindName("colLateral");
+            colLateral.Width = new GridLength(larguraLateral);
+            ((GridSplitter)w.FindName("divisa")).DragCompleted += delegate { larguraLateral = colLateral.ActualWidth; };
             titulo = (TextBlock)w.FindName("titulo"); busca = (TextBox)w.FindName("busca"); endereco = (TextBox)w.FindName("endereco");
             abasGrade = (UniformGrid)w.FindName("abas"); abasFundo = (Border)w.FindName("abasFundo");
             ativa = new Aba(); historico = ativa.Historico; abas.Add(ativa);
@@ -275,6 +278,7 @@ namespace MacSkin
 
         // OneDrive vira um grupo expansível com as subpastas, incluindo os atalhos de bibliotecas do SharePoint
         // (pastas somente-leitura na raiz), como o painel de navegação do Explorador
+        static double larguraLateral = 228;   // a largura arrastada vale para as próximas janelas
         static readonly HashSet<string> gruposFechados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void GrupoNuvem(string nome, string raiz)
         {
@@ -1027,15 +1031,57 @@ namespace MacSkin
         </ControlTemplate.Triggers>
       </ControlTemplate></Setter.Value></Setter>
     </Style>
+    <!-- barras de rolagem finas do macOS: sem setas, trilho transparente, alça arredondada que engrossa no hover -->
+    <Style TargetType='Thumb' x:Key='Alca'>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='Thumb'>
+        <Border CornerRadius='3' Background='{DynamicResource TextoSec}' Opacity='0.55'/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType='ScrollBar'>
+      <Setter Property='Background' Value='Transparent'/>
+      <Setter Property='Width' Value='10'/>
+      <Setter Property='MinWidth' Value='10'/>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+        <Grid Background='Transparent'>
+          <Track x:Name='PART_Track' IsDirectionReversed='True' Margin='3,2'>
+            <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
+          </Track>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='1,2'/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property='Orientation' Value='Horizontal'>
+          <Setter Property='Width' Value='Auto'/>
+          <Setter Property='MinWidth' Value='0'/>
+          <Setter Property='Height' Value='10'/>
+          <Setter Property='MinHeight' Value='10'/>
+          <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+            <Grid Background='Transparent'>
+              <Track x:Name='PART_Track' IsDirectionReversed='False' Margin='2,3'>
+                <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
+              </Track>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='2,1'/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
   </Window.Resources>
 
   <Grid x:Name='raiz'>
-    <Grid.ColumnDefinitions><ColumnDefinition Width='228'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition x:Name='colLateral' Width='228' MinWidth='150' MaxWidth='520'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
     <!-- barra lateral sobre o vidro -->
     <Border Background='{DynamicResource Lateral}'>
       <ScrollViewer VerticalScrollBarVisibility='Auto' Margin='0,46,0,8'><StackPanel x:Name='lateral' TextElement.Foreground='{DynamicResource Texto}'/></ScrollViewer>
     </Border>
     <TextBlock Text='Finder' Margin='18,16,0,0' FontWeight='SemiBold' Foreground='{DynamicResource TextoSec}' IsHitTestVisible='False'/>
+    <!-- arrastar a divisa alarga ou estreita a barra lateral -->
+    <GridSplitter x:Name='divisa' Grid.Column='0' HorizontalAlignment='Right' VerticalAlignment='Stretch' Width='6' Margin='0,0,-3,0' Panel.ZIndex='5'
+                  Background='Transparent' ResizeDirection='Columns' ResizeBehavior='CurrentAndNext' Cursor='SizeWE' WindowChrome.IsHitTestVisibleInChrome='True'/>
 
     <Grid Grid.Column='1' Background='{DynamicResource Fundo}'>
       <Grid.RowDefinitions><RowDefinition Height='52'/><RowDefinition Height='Auto'/><RowDefinition Height='*'/><RowDefinition Height='30'/></Grid.RowDefinitions>
