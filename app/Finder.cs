@@ -81,6 +81,8 @@ namespace MacSkin
         CancellationTokenSource buscaCancel;
         bool emBusca;   // a lista mostra resultados da busca em subpastas (Enter), não o conteúdo da pasta
         Point arrastoInicio; bool podeArrastar;
+        Canvas laco; FrameworkElement lacoRet;
+        bool lacoAtivo; Point lacoInicio; List<object> lacoBase; Entrada lacoItem, pendente;
         IntPtr hwnd;
 
         static void Log(string m) { Comum.Log("finder.log", m); }
@@ -89,6 +91,7 @@ namespace MacSkin
         {
             w = (Window)XamlReader.Parse(Xaml);
             lista = (ListView)w.FindName("lista"); icones = (ListBox)w.FindName("icones");
+            laco = (Canvas)w.FindName("laco"); lacoRet = (FrameworkElement)w.FindName("lacoRet");
             lateral = (StackPanel)w.FindName("lateral"); caminhoBarra = (StackPanel)w.FindName("caminho");
             var colLateral = (ColumnDefinition)w.FindName("colLateral");
             colLateral.Width = new GridLength(larguraLateral);
@@ -139,8 +142,11 @@ namespace MacSkin
             {
                 c.MouseDoubleClick += (s, e) => { if (Sob(e) != null) AbrirSelecionados(); };
                 c.KeyDown += Teclas;
-                c.PreviewMouseLeftButtonDown += (s, e) => { arrastoInicio = e.GetPosition(w); podeArrastar = Sob(e) != null; };
+                c.PreviewMouseLeftButtonDown += AoPressar;
+                c.PreviewMouseMove += AoMoverLaco;
                 c.PreviewMouseMove += AoArrastar;
+                c.PreviewMouseLeftButtonUp += AoSoltarMouse;
+                c.LostMouseCapture += delegate { if (lacoAtivo) { lacoAtivo = false; lacoRet.Visibility = Visibility.Collapsed; } };
                 c.AllowDrop = true;
                 c.Drop += AoSoltar;
                 c.DragOver += (s, e) => { e.Effects = Efeito(e, DestinoSoltar(e)); e.Handled = true; };
@@ -905,6 +911,84 @@ namespace MacSkin
             return r == null ? null : r.Trim();
         }
 
+        // ---------- seleção com o mouse ----------
+        // Arrastar a partir do vazio (na lista, também fora da coluna Nome) desenha um laço que seleciona o que tocar; Ctrl soma à seleção.
+        // Clicar num item que já faz parte de uma seleção múltipla não a desfaz, para dar para arrastar vários de uma vez.
+        void AoPressar(object s, MouseButtonEventArgs e)
+        {
+            var c = (ListBox)s;
+            arrastoInicio = e.GetPosition(w); podeArrastar = false; pendente = null;
+            if (DentroDe<ScrollBar>(e) || DentroDe<GridViewColumnHeader>(e)) return;
+            var en = Sob(e);
+            bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            bool foraDoNome = c == lista && e.GetPosition(lista).X > ((GridView)lista.View).Columns[0].ActualWidth + 6;
+            if (en != null && (!foraDoNome || shift || e.ClickCount > 1))
+            {
+                podeArrastar = true;
+                if (!ctrl && !shift && e.ClickCount == 1 && c.SelectedItems.Count > 1 && c.SelectedItems.Contains(en)) { pendente = en; e.Handled = true; }
+                return;
+            }
+            if (e.ClickCount > 1) return;
+            lacoAtivo = true; lacoItem = en;
+            lacoInicio = e.GetPosition(laco);
+            lacoBase = ctrl ? c.SelectedItems.Cast<object>().ToList() : new List<object>();
+            c.Focus(); c.CaptureMouse(); e.Handled = true;
+        }
+
+        void AoMoverLaco(object s, MouseEventArgs e)
+        {
+            if (!lacoAtivo) return;
+            e.Handled = true;   // senão o ListBox faz a própria seleção por arrasto
+            var p = e.GetPosition(laco);
+            if (lacoRet.Visibility != Visibility.Visible &&
+                Math.Abs(p.X - lacoInicio.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(p.Y - lacoInicio.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+            var r = new Rect(lacoInicio, p);
+            Canvas.SetLeft(lacoRet, r.X); Canvas.SetTop(lacoRet, r.Y); lacoRet.Width = r.Width; lacoRet.Height = r.Height;
+            lacoRet.Visibility = Visibility.Visible;
+
+            var c = (ListBox)s;
+            var marcar = new HashSet<object>(lacoBase);
+            foreach (var item in c.Items)
+            {
+                var ct = c.ItemContainerGenerator.ContainerFromItem(item) as ListBoxItem;
+                if (ct == null || !ct.IsVisible) continue;
+                if (ct.TransformToVisual(laco).TransformBounds(new Rect(ct.RenderSize)).IntersectsWith(r)) marcar.Add(item);
+            }
+            foreach (var item in c.SelectedItems.Cast<object>().ToList()) if (!marcar.Contains(item)) c.SelectedItems.Remove(item);
+            foreach (var item in marcar) if (!c.SelectedItems.Contains(item)) c.SelectedItems.Add(item);
+        }
+
+        void AoSoltarMouse(object s, MouseButtonEventArgs e)
+        {
+            var c = (ListBox)s;
+            if (pendente != null)
+            {
+                // clicou sem arrastar num item da seleção: fica só ele
+                if (podeArrastar) { c.SelectedItems.Clear(); c.SelectedItem = pendente; }
+                pendente = null; e.Handled = true;
+            }
+            if (!lacoAtivo) return;
+            lacoAtivo = false; e.Handled = true;
+            bool moveu = lacoRet.Visibility == Visibility.Visible;
+            lacoRet.Visibility = Visibility.Collapsed;
+            c.ReleaseMouseCapture();
+            if (moveu) return;
+            // clique simples sem arrastar: no vazio limpa a seleção; fora da coluna Nome seleciona a linha
+            bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            if (lacoItem == null) { if (!ctrl) c.SelectedItems.Clear(); return; }
+            if (ctrl) { if (c.SelectedItems.Contains(lacoItem)) c.SelectedItems.Remove(lacoItem); else c.SelectedItems.Add(lacoItem); }
+            else { c.SelectedItems.Clear(); c.SelectedItem = lacoItem; }
+            var ct = c.ItemContainerGenerator.ContainerFromItem(lacoItem) as ListBoxItem;
+            if (ct != null) ct.Focus();
+        }
+
+        static bool DentroDe<T>(MouseEventArgs e) where T : DependencyObject
+        {
+            var d = e.OriginalSource as DependencyObject;
+            while (d != null && !(d is T)) d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+            return d != null;
+        }
+
         // ---------- arrastar e soltar ----------
         void AoArrastar(object s, MouseEventArgs e)
         {
@@ -1152,6 +1236,9 @@ namespace MacSkin
                ItemContainerStyle='{StaticResource Bloco}' ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
       </ListBox>
+      <!-- laço de seleção (arrastar o mouse a partir do vazio) -->
+      <Canvas x:Name='laco' Grid.Row='2' IsHitTestVisible='False' ClipToBounds='True'>
+        <Grid x:Name='lacoRet' Visibility='Collapsed'><Border Background='{DynamicResource Azul}' Opacity='0.2'/><Border BorderBrush='{DynamicResource Azul}' BorderThickness='1'/></Grid></Canvas>
 
       <!-- abas (só com duas ou mais, como no Mac) -->
       <Border x:Name='abasFundo' Grid.Row='1' Visibility='Collapsed' Background='{DynamicResource Pilula}' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,1' Padding='4,3'>
