@@ -77,8 +77,9 @@ namespace MacSkin
         string modo = "lista";
         string ordem = "Nome"; bool crescente = true;
         FileSystemWatcher vigia;
-        DispatcherTimer recarregar;
+        DispatcherTimer recarregar, buscaAuto;
         CancellationTokenSource buscaCancel;
+        bool emBusca;   // a lista mostra resultados da busca em subpastas (Enter), não o conteúdo da pasta
         Point arrastoInicio; bool podeArrastar;
         IntPtr hwnd;
 
@@ -120,7 +121,10 @@ namespace MacSkin
                 ((Grid)w.FindName("raiz")).Margin = w.WindowState == WindowState.Maximized ? new Thickness(7) : new Thickness(0);
             };
 
-            busca.TextChanged += delegate { Filtrar(); };
+            // digitou e parou: depois de 500 ms procura sozinho em todas as subpastas (o Enter continua procurando na hora)
+            buscaAuto = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            buscaAuto.Tick += delegate { buscaAuto.Stop(); if (busca.Text.Trim().Length >= 2) BuscarTudo(busca.Text); };
+            busca.TextChanged += delegate { Filtrar(); buscaAuto.Stop(); if (busca.IsKeyboardFocusWithin && busca.Text.Trim().Length >= 2) buscaAuto.Start(); };
             // caminho embaixo: clicar fora dos nomes (ou Ctrl+L / Alt+D) vira texto para copiar, colar ou digitar, como no Windows
             ((Border)w.FindName("caminhoFundo")).MouseLeftButtonDown += (s, e) => { if (endereco.Visibility != Visibility.Visible) { EditarCaminho(); e.Handled = true; } };
             endereco.KeyDown += (s, e) =>
@@ -129,7 +133,7 @@ namespace MacSkin
                 else if (e.Key == Key.Escape) { e.Handled = true; FecharCaminho(); lista.Focus(); }
             };
             endereco.LostKeyboardFocus += delegate { FecharCaminho(); };
-            busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) BuscarTudo(busca.Text); if (e.Key == Key.Escape) { busca.Text = ""; lista.Focus(); } };
+            busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) { buscaAuto.Stop(); BuscarTudo(busca.Text); } if (e.Key == Key.Escape) { busca.Text = ""; lista.Focus(); } };
 
             foreach (var c in new Selector[] { lista, icones })
             {
@@ -357,6 +361,8 @@ namespace MacSkin
             voltar.IsEnabled = pos > 0; avancar.IsEnabled = pos < historico.Count - 1;
             titulo.Text = destino == Recentes ? "Recentes" : NomePasta(destino);
             w.Title = titulo.Text + " — Finder";
+            emBusca = false;   // o Carregar abaixo já repõe a lista
+            if (buscaCancel != null) buscaCancel.Cancel();
             if (busca.Text.Length > 0) busca.Text = "";
             ativa.Pos = pos; MontarAbas();
             MarcarLateral(); MontarCaminho(); Vigiar();
@@ -624,6 +630,16 @@ namespace MacSkin
         void Filtrar()
         {
             string t = busca.Text.Trim();
+            // limpou a busca depois de um Enter: sai dos resultados e volta ao conteúdo da pasta
+            if (t.Length == 0 && emBusca)
+            {
+                emBusca = false;
+                if (buscaCancel != null) buscaCancel.Cancel();
+                titulo.Text = atual == Recentes ? "Recentes" : NomePasta(atual);
+                visao.Filter = null;
+                Carregar(atual, false);
+                return;
+            }
             visao.Filter = t.Length == 0 ? null : (Predicate<object>)(o => ((Entrada)o).Nome.IndexOf(t, StringComparison.CurrentCultureIgnoreCase) >= 0);
         }
 
@@ -634,6 +650,7 @@ namespace MacSkin
             if (termo.Length == 0 || atual == Recentes) return;
             if (buscaCancel != null) buscaCancel.Cancel();
             var cts = buscaCancel = new CancellationTokenSource();
+            emBusca = true;
             string raiz = atual; int g = ++geracao;
             titulo.Text = "Buscando “" + termo + "”…";
             visao.Filter = null;
