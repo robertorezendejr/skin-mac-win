@@ -61,11 +61,16 @@ namespace MacSkin
 
         void Esconder() { if (visivel || Janela.IsVisible) { Janela.Visibility = Visibility.Hidden; visivel = false; } }
 
+        Win32.POINT ultimo = new Win32.POINT { X = int.MinValue };   // onde o mouse estava na última checagem
+
         void Verificar()
         {
             try
             {
                 Win32.POINT p; Win32.GetCursorPos(out p);
+                // mouse parado com os botões escondidos: nada mudou (a medição de uma janela nova zera ultimo)
+                if (!visivel && p.X == ultimo.X && p.Y == ultimo.Y) return;
+                ultimo = p;
                 IntPtr h = Win32.GetAncestor(Win32.WindowFromPoint(p), 2);
                 if (h == IntPtr.Zero || h == eu) { Esconder(); return; }
                 Win32.RECT r; Win32.GetWindowRect(h, out r);
@@ -89,6 +94,7 @@ namespace MacSkin
                             Janela.Dispatcher.BeginInvoke(new Action(() =>
                             {
                                 medindo.Remove(chave);
+                                ultimo.X = int.MinValue;   // mouse parado em cima da janela: reavalia já com a medida pronta
                                 if (medidas.Count > 300) medidas.Clear();   // janelas fechadas ao longo do dia
                                 medidas[chave] = m;
                             }));
