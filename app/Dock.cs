@@ -110,7 +110,18 @@ namespace MacSkin
             m2.Click += delegate { try { File.WriteAllText(System.IO.Path.Combine(Comum.Dir, "desligado"), ""); } catch { } Janela.Close(); };
             var m4 = new MenuItem { Header = "Mostrar apps ocultos de novo" };
             m4.Click += delegate { MostrarOcultos(); };
-            menu.Items.Add(m1); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m2);
+            // desliga e liga de novo pelo macskin.ps1, num PowerShell à parte (este processo some no meio do caminho)
+            var m5 = new MenuItem { Header = "Reiniciar Mac Skin" };
+            m5.Click += delegate
+            {
+                try
+                {
+                    string ps = "'" + System.IO.Path.Combine(Comum.Dir, "macskin.ps1") + "'";
+                    Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"& " + ps + " -Acao desligar; Start-Sleep 1; & " + ps + " -Acao ligar\"") { CreateNoWindow = true, UseShellExecute = false });
+                }
+                catch (Exception e) { Comum.Log("dock.log", "reiniciar: " + e.Message); }
+            };
+            menu.Items.Add(m1); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m5); menu.Items.Add(m2);
             dock.ContextMenu = menu; LigarMenu(menu);
 
             // ordem na dock: apps fixados | apps abertos não fixados | Lixeira, com separadores
