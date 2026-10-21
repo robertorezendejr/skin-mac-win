@@ -127,8 +127,8 @@ namespace MacSkin
 
             var t1 = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             t1.Tick += delegate { AtualizarRapido(); }; t1.Start();
-            // Wi-Fi a cada 10 s, numa thread à parte (o netsh leva ~0,1 s e não pode travar a barra)
-            var t2 = new Timer(delegate { LerWifi(); }, null, 0, 10000);
+            // Wi-Fi a cada 15 s, numa thread à parte (o netsh leva ~0,1 s e não pode travar a barra)
+            var t2 = new Timer(delegate { LerWifi(); }, null, 0, 15000);
             GC.KeepAlive(t2); timerWifi = t2;
         }
         Timer timerWifi;
@@ -217,6 +217,11 @@ namespace MacSkin
         {
             try
             {
+                if (!NetworkInterface.GetAllNetworkInterfaces().Any(n => n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && n.OperationalStatus == OperationalStatus.Up))
+                {
+                    wifiGlifo = NetworkInterface.GetIsNetworkAvailable() ? 0xE839 : 0xF384;   // cabo / sem rede
+                    return;
+                }
                 var psi = new ProcessStartInfo("netsh.exe", "wlan show interfaces") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
                 string saida;
                 using (var p = Process.Start(psi)) { saida = p.StandardOutput.ReadToEnd(); p.WaitForExit(3000); }

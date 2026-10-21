@@ -96,7 +96,7 @@ namespace MacSkin
                 ImageSource img = null;
                 try { img = Imagem(p.Caminho, p.Px); } catch { }
                 if (img == null) continue;
-                if (cache.Count > 3000) cache.Clear();
+                if (cache.Count > 800) cache.Clear();
                 cache[p.Caminho + "|" + p.Px] = img;
                 var pr = p.Pronto; var i = img;
                 tela.BeginInvoke(new Action(() => pr(i)));

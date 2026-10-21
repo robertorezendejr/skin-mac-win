@@ -48,6 +48,17 @@ namespace MacSkin
         [DllImport("ole32.dll")] static extern int PropVariantClear(ref PROPVARIANT v);
         static PROPERTYKEY chaveAumid = new PROPERTYKEY { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };
 
+        static readonly Dictionary<IntPtr, KeyValuePair<uint, string>> aumids = new Dictionary<IntPtr, KeyValuePair<uint, string>>();
+        static string AumidEmCache(IntPtr h, uint pid)
+        {
+            KeyValuePair<uint, string> c;
+            if (aumids.TryGetValue(h, out c) && c.Key == pid) return c.Value;
+            string a = AumidDaJanela(h);
+            if (aumids.Count > 500) aumids.Clear();   // janelas que já fecharam
+            aumids[h] = new KeyValuePair<uint, string>(pid, a);
+            return a;
+        }
+
         static string AumidDaJanela(IntPtr h)
         {
             IPropertyStore ps = null;
@@ -111,7 +122,7 @@ namespace MacSkin
                 if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return true;
                 uint pid = Win32.Pid(h);
                 var p = Processo(pid);
-                string aumid = AumidDaJanela(h);
+                string aumid = AumidEmCache(h, pid);
                 if (string.IsNullOrEmpty(aumid) && p.Processo != "applicationframehost") aumid = p.Pacote;
                 r.Add(new JanelaApp { H = h, Pid = pid, Processo = p.Processo, Caminho = p.Caminho, Aumid = aumid ?? "", Titulo = t });
                 return true;
