@@ -86,6 +86,59 @@ namespace MacSkin
             }
         }
 
+        // avisa no instante em que o indicador (janela pequena do Explorer) é mostrado, antes de aparecer na tela
+        delegate void WinEventProc(IntPtr gancho, uint ev, IntPtr h, int objeto, int filho, uint thread, uint tempo);
+        [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint de, uint ate, IntPtr mod, WinEventProc p, uint pid, uint tid, uint flags);
+        [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr g);
+        static WinEventProc procOsd; static IntPtr gOsd1, gOsd2;
+        public static void VigiarOsd(Action<IntPtr> aoSurgir)
+        {
+            procOsd = (g, ev, h, o, f, t, tp) =>
+            {
+                if (o != 0 || f != 0 || h == IntPtr.Zero || Classe(h) != "XamlExplorerHostIslandWindow" || Pid(h) == Eu) return;
+                RECT r; GetWindowRect(h, out r);
+                int w = r.R - r.L, a = r.B - r.T;
+                if (w > 0 && a > 0 && w <= 800 && a <= 260) aoSurgir(h);
+            };
+            gOsd1 = SetWinEventHook(0x8002, 0x8002, IntPtr.Zero, procOsd, 0, 0, 2);    // EVENT_OBJECT_SHOW, fora do próprio processo
+            gOsd2 = SetWinEventHook(0x8018, 0x8018, IntPtr.Zero, procOsd, 0, 0, 2);    // EVENT_OBJECT_UNCLOAKED
+        }
+        public static void PararOsd() { if (gOsd1 != IntPtr.Zero) UnhookWinEvent(gOsd1); if (gOsd2 != IntPtr.Zero) UnhookWinEvent(gOsd2); gOsd1 = gOsd2 = IntPtr.Zero; }
+        public static void Esconder(IntPtr h) { ShowWindow(h, 0); }
+        public static void MostrarSemAtivar(IntPtr h) { ShowWindow(h, 8); }
+
+        // indicador de volume do Windows 11: janela larga e transparente do Explorer (ilha XAML), que não ativa.
+        // Se o Explorer está com o foco (Win+A, Iniciar), o painel é do usuário e fica.
+        public static int OcultarOsdNativo(StringBuilder diag)
+        {
+            int n = 0;
+            // o indicador de baixo (269x71, centro da tela) é uma janela do Explorer que o EnumWindows não lista: acha-se pelo ponto
+            var p = new POINT { X = GetSystemMetrics(0) / 2, Y = GetSystemMetrics(1) - 125 };
+            var w = WindowFromPoint(p);
+            if (w != IntPtr.Zero && Classe(w) == "XamlExplorerHostIslandWindow" && Pid(w) != Eu)
+            {
+                RECT rw; GetWindowRect(w, out rw);
+                if (rw.R - rw.L <= 800 && rw.B - rw.T <= 260)
+                {
+                    ShowWindow(w, 0); n++;
+                    if (diag != null) diag.Append(w + " no ponto " + (rw.R - rw.L) + "x" + (rw.B - rw.T) + " depois=" + IsWindowVisible(w) + "; ");
+                }
+            }
+            var fg = GetForegroundWindow();
+            uint pidFg = fg == IntPtr.Zero ? 0 : Pid(fg);
+            EnumWindows((h, l) =>
+            {
+                if (!IsWindowVisible(h) || Pid(h) == Eu || Pid(h) == pidFg) return true;
+                string c = Classe(h);
+                if (c != "XamlExplorerHostIslandWindow" && c != "NativeHWNDHost") return true;
+                RECT r; GetWindowRect(h, out r);
+                bool ok = ShowWindow(h, 0); n++;
+                if (diag != null) diag.Append(h + " " + c + " " + (r.R - r.L) + "x" + (r.B - r.T) + " @" + r.L + "," + r.T + " fg=" + (Pid(h) == pidFg) + " depois=" + IsWindowVisible(h) + "; ");
+                return true;
+            }, IntPtr.Zero);
+            return n;
+        }
+
         // ---------- AppBar: reserva uma faixa da tela (janelas maximizadas param antes dela) ----------
         [StructLayout(LayoutKind.Sequential)] struct APPBARDATA { public int cbSize; public IntPtr hWnd; public int msg; public int edge; public RECT rc; public IntPtr lParam; }
         [DllImport("shell32.dll")] static extern IntPtr SHAppBarMessage(int m, ref APPBARDATA d);

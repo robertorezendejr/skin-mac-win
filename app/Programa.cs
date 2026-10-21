@@ -58,18 +58,19 @@ namespace MacSkin
             var barra = new Barra();
             var dock = new Dock();
             var botoes = new Botoes();
+            var volume = new Volume();
             // fechar qualquer janela principal (Desligar Mac Skin manda WM_CLOSE) encerra tudo, devolvendo os espaços
             // reservados e a barra do Windows
             EventHandler encerrar = null;
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar();
             int r = app.Run();
             GC.KeepAlive(mutex);
             return r;
