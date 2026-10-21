@@ -84,6 +84,7 @@ namespace MacSkin
         Canvas laco; FrameworkElement lacoRet;
         bool lacoAtivo; Point lacoInicio; List<object> lacoBase; Entrada lacoItem, pendente;
         IntPtr hwnd;
+        Previa previa;
 
         static void Log(string m) { Comum.Log("finder.log", m); }
 
@@ -142,6 +143,13 @@ namespace MacSkin
             {
                 c.MouseDoubleClick += (s, e) => { if (Sob(e) != null) AbrirSelecionados(); };
                 c.KeyDown += Teclas;
+                // Espaço: a lista usaria para selecionar, por isso vem antes (Preview)
+                c.PreviewKeyDown += (s, e) =>
+                {
+                    if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
+                    AlternarPrevia(); e.Handled = true;
+                };
+                c.SelectionChanged += delegate { if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault()); };
                 c.PreviewMouseLeftButtonDown += AoPressar;
                 c.PreviewMouseMove += AoMoverLaco;
                 c.PreviewMouseMove += AoArrastar;
@@ -715,6 +723,25 @@ namespace MacSkin
             }
         }
 
+        // Visualização Rápida (Espaço), como o Quick Look do Mac
+        void AlternarPrevia()
+        {
+            if (previa != null && previa.Aberta) { previa.Fechar(); return; }
+            var sel = Selecionados().LastOrDefault();
+            if (sel == null) return;
+            if (previa == null) previa = new Previa(w) { Mover = MoverSelecao };
+            previa.Mostrar(sel);
+        }
+
+        void MoverSelecao(int d)
+        {
+            ListBox c = modo == "lista" ? lista : icones;
+            int i = c.SelectedIndex + d;
+            if (c.SelectedIndex < 0 || i < 0 || i >= c.Items.Count) return;
+            c.SelectedIndex = i;
+            c.ScrollIntoView(c.SelectedItem);
+        }
+
         static void NovaJanela(string pasta)
         {
             try { Process.Start(Process.GetCurrentProcess().MainModule.FileName, "--finder \"" + pasta + "\""); } catch { }
@@ -725,6 +752,7 @@ namespace MacSkin
         {
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             if (e.Key == Key.Enter) AbrirSelecionados();
+            else if (e.Key == Key.Escape && previa != null && previa.Aberta) previa.Fechar();
             else if (e.Key == Key.Back) voltar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             else if (e.Key == Key.Delete) Lixeira(shift);
             else if (e.Key == Key.F2) Renomear();
@@ -757,6 +785,7 @@ namespace MacSkin
             op("Nova Pasta", NovaPasta, pastaReal);
             m.Items.Add(new Separator());
             op("Copiar Caminho", () => Clipboard.SetText(tem ? string.Join(Environment.NewLine, sel.Select(e => e.Caminho)) : atual), true);
+            op("Visualização Rápida", AlternarPrevia, tem);
             op("Obter Informações", () => Shell.Propriedades(tem ? sel[0].Caminho : atual), tem || pastaReal);
             op("Mostrar no Explorador", MostrarNoExplorador, true);
             return m;
