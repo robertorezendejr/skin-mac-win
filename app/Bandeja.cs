@@ -210,6 +210,9 @@ namespace MacSkin
         readonly TextBlock titulo, vazio, rapidas;
         readonly Border sep, itemRapidas;
         IntPtr h; bool? claro;
+        // depois de um clique num ícone o app abre o menu/janela dele e a caixa perde o foco: ela continua aberta
+        // até um clique fora dela e fora desse app (ou outro app vir para a frente)
+        uint segurando; DispatcherTimer vigiaClique;
         Brush texto = Brushes.White, sobre = Comum.Cor("#26FFFFFF");
         static readonly Brush Nada = Comum.Cor("#01FFFFFF");
         static readonly FontFamily Fonte = new FontFamily("Inter, Segoe UI");
@@ -241,14 +244,17 @@ namespace MacSkin
                 Win32.Estilo(h, Win32.EX_TOOL);
                 Tema();
             };
-            jan.Deactivated += delegate { jan.Hide(); };   // clicou fora, ou o app abriu o menu/janela dele
+            jan.Deactivated += delegate { if (segurando == 0) jan.Hide(); };   // clicou fora
+            jan.Activated += delegate { Soltar(); };
+            vigiaClique = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+            vigiaClique.Tick += delegate { Vigiar(); };
             Bandeja.Mudou += delegate { if (jan.IsVisible) Montar(); };
         }
 
         // canto = canto de baixo à direita do item da barra, em DIPs
         public void Alternar(Point canto)
         {
-            if (jan.IsVisible) { jan.Hide(); return; }
+            if (jan.IsVisible) { Esconder(); return; }
             Bandeja.Limpar();
             Montar();
             if (h != IntPtr.Zero) Tema();
@@ -256,6 +262,22 @@ namespace MacSkin
             jan.Top = canto.Y + 5;
             jan.Show(); jan.Activate();
         }
+
+        void Esconder() { Soltar(); jan.Hide(); }
+        void Soltar() { segurando = 0; vigiaClique.Stop(); }
+
+        void Vigiar()
+        {
+            if (!jan.IsVisible) { Soltar(); return; }
+            uint meu = (uint)Process.GetCurrentProcess().Id;
+            uint frente = Win32.Pid(Win32.GetForegroundWindow());
+            if (frente != meu && frente != segurando && frente != 0) { Esconder(); return; }
+            if ((GetAsyncKeyState(1) & 0x8000) == 0 && (GetAsyncKeyState(2) & 0x8000) == 0) return;
+            Win32.POINT p; Win32.GetCursorPos(out p);
+            IntPtr sob = Win32.GetAncestor(Win32.WindowFromPoint(p), 2);   // GA_ROOT
+            if (sob != h && Win32.Pid(sob) != segurando) Esconder();
+        }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
 
         void Tema()
         {
@@ -288,13 +310,16 @@ namespace MacSkin
                 b.MouseLeftButtonDown += (s, e) => { if (e.ClickCount == 2) Clicar(b, icone, false, true); };
                 b.MouseLeftButtonUp += delegate { Clicar(b, icone, false, false); };
                 b.MouseRightButtonUp += (s, e) => { e.Handled = true; Clicar(b, icone, true, false); };
+                b.MouseRightButtonDown += (s, e) => e.Handled = true;
                 grade.Children.Add(b);
             }
             vazio.Visibility = grade.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        static void Clicar(Border b, IconeBandeja ic, bool direito, bool duplo)
+        void Clicar(Border b, IconeBandeja ic, bool direito, bool duplo)
         {
+            segurando = Win32.Pid(ic.Janela);
+            vigiaClique.Start();
             var p = b.PointToScreen(new Point(b.ActualWidth / 2, b.ActualHeight / 2));
             Bandeja.Clicar(ic, direito, duplo, (int)p.X, (int)p.Y);
         }
