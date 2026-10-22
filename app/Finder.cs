@@ -60,7 +60,7 @@ namespace MacSkin
         Window w;
         ListView lista; ListBox icones;
         StackPanel lateral, caminhoBarra;
-        TextBlock titulo;
+        TextBlock titulo, statusSelecao;
         TextBox busca, endereco;
         Button voltar, avancar;
         ToggleButton vLista, vIcones, vGaleria;
@@ -97,7 +97,7 @@ namespace MacSkin
             var colLateral = (ColumnDefinition)w.FindName("colLateral");
             colLateral.Width = new GridLength(larguraLateral);
             ((GridSplitter)w.FindName("divisa")).DragCompleted += delegate { larguraLateral = colLateral.ActualWidth; };
-            titulo = (TextBlock)w.FindName("titulo"); busca = (TextBox)w.FindName("busca"); endereco = (TextBox)w.FindName("endereco");
+            titulo = (TextBlock)w.FindName("titulo"); statusSelecao = (TextBlock)w.FindName("statusSelecao"); busca = (TextBox)w.FindName("busca"); endereco = (TextBox)w.FindName("endereco");
             abasGrade = (UniformGrid)w.FindName("abas"); abasFundo = (Border)w.FindName("abasFundo");
             ativa = new Aba(); historico = ativa.Historico; abas.Add(ativa);
             ((Button)w.FindName("novaAba")).Click += delegate { NovaAba(atual); };
@@ -150,7 +150,11 @@ namespace MacSkin
                     if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
                     AlternarPrevia(); e.Handled = true;
                 };
-                c.SelectionChanged += delegate { if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault()); };
+                c.SelectionChanged += delegate
+                {
+                    AtualizarStatusSelecao();
+                    if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault());
+                };
                 c.PreviewMouseLeftButtonDown += AoPressar;
                 c.PreviewMouseMove += AoMoverLaco;
                 c.PreviewMouseMove += AoArrastar;
@@ -209,6 +213,7 @@ namespace MacSkin
 
             MontarLateral();
             Navegar(string.IsNullOrEmpty(inicial) || !Directory.Exists(inicial) ? Pasta(Environment.SpecialFolder.UserProfile, "Downloads") : inicial, true);
+            AtualizarStatusSelecao();
         }
 
         public void Mostrar() { w.Show(); w.Activate(); lista.Focus(); }
@@ -747,6 +752,14 @@ namespace MacSkin
         {
             var c = modo == "lista" ? (System.Collections.IList)lista.SelectedItems : icones.SelectedItems;
             return c.Cast<Entrada>().ToList();
+        }
+
+        // Indicador permanente no rodapÃ©: acompanha seleÃ§Ã£o por clique, teclado e laÃ§o.
+        void AtualizarStatusSelecao()
+        {
+            if (statusSelecao == null) return;
+            int n = modo == "lista" ? lista.SelectedItems.Count : icones.SelectedItems.Count;
+            statusSelecao.Text = n == 1 ? "1 item selecionado" : n.ToString("N0", PtBr) + " itens selecionados";
         }
 
         static Entrada Sob(MouseEventArgs e)
@@ -1402,8 +1415,10 @@ namespace MacSkin
           <UniformGrid x:Name='abas' Rows='1'/></DockPanel></Border>
       <!-- caminho -->
       <Border x:Name='caminhoFundo' Grid.Row='3' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,0' Background='Transparent'>
-        <Grid><StackPanel x:Name='caminho' Orientation='Horizontal' Margin='10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/>
-          <TextBox x:Name='endereco' Visibility='Collapsed' Margin='8,0' Padding='4,2' VerticalAlignment='Center' FontSize='11.5' Background='{DynamicResource Campo}' BorderThickness='0'
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width='170'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+          <TextBlock x:Name='statusSelecao' Grid.Column='0' Margin='10,0' VerticalAlignment='Center' Foreground='{DynamicResource TextoSec}' FontSize='11.5' Text='0 itens selecionados'/>
+          <StackPanel x:Name='caminho' Grid.Column='1' Orientation='Horizontal' Margin='0,0,10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/>
+          <TextBox x:Name='endereco' Grid.Column='1' Visibility='Collapsed' Margin='0,0,8,0' Padding='4,2' VerticalAlignment='Center' FontSize='11.5' Background='{DynamicResource Campo}' BorderThickness='0'
                    Foreground='{DynamicResource Texto}' CaretBrush='{DynamicResource Texto}'/></Grid></Border>
     </Grid>
   </Grid>
