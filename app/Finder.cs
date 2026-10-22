@@ -920,23 +920,105 @@ namespace MacSkin
         // caixinha de texto no estilo do Finder (nome selecionado sem a extensão, como no Mac)
         string Perguntar(string tituloJanela, string valor)
         {
+            // Liquid Glass, como o indicador de volume: janela acrylic atrás + cartão transparente com brilho e borda de luz por cima
+            const double L = 380, A = 150, Raio = 16, Recuo = 5, Folga = 20;
+            bool c = Comum.TemaClaro();
+            var fonte = new FontFamily("Inter, Segoe UI");
+            var texto = Comum.Cor(c ? "#E6000000" : "#FFFFFFFF");
+
+            var vidro = new Window
+            {
+                Title = "Mac Skin vidro", WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Owner = w,
+                Background = Brushes.Transparent, Left = -10000, Top = -10000, Width = 10, Height = 10, ShowActivated = false
+            };
+            IntPtr hVidro = IntPtr.Zero;
+            vidro.SourceInitialized += delegate
+            {
+                hVidro = new WindowInteropHelper(vidro).Handle;
+                HwndSource.FromHwnd(hVidro).CompositionTarget.BackgroundColor = Colors.Transparent;
+                Win32.Estilo(hVidro, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
+            };
+            vidro.Show();   // o diálogo precisa de um dono já exibido; o cartão fica sempre na frente do vidro
+
+            Rect area = w.WindowState == WindowState.Maximized ? SystemParameters.WorkArea : new Rect(w.Left, w.Top, w.ActualWidth, w.ActualHeight);
             var d = new Window
             {
-                Title = tituloJanela, Owner = w, Width = 380, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Background = (Brush)w.Resources["Fundo"]
+                Title = tituloJanela, Owner = vidro, Width = L + 2 * Folga, Height = A + 2 * Folga, WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = area.Left + (area.Width - L) / 2 - Folga, Top = area.Top + (area.Height - A) / 3 - Folga,
+                WindowStyle = WindowStyle.None, AllowsTransparency = true, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Background = Brushes.Transparent
             };
-            var sp = new StackPanel { Margin = new Thickness(16) };
-            var tb = new TextBox { Text = valor, FontSize = 13, Padding = new Thickness(6, 4, 6, 4) };
-            var ok = new Button { Content = "OK", IsDefault = true, Width = 80, Margin = new Thickness(0, 12, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
+
+            var fundo = new Border
+            {
+                Width = L, Height = A, CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(1),
+                Background = c ? Comum.Degrade("#55FFFFFF", "#14FFFFFF") : Comum.Degrade("#40FFFFFF", "#0EFFFFFF"),
+                BorderBrush = c ? Comum.Degrade("#F2FFFFFF", "#66FFFFFF") : Comum.Degrade("#B3FFFFFF", "#33FFFFFF"),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 28, ShadowDepth = 6, Direction = 270, Opacity = 0.28 }
+            };
+            var aro = new Border
+            {
+                Width = L, Height = A, CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(Recuo), IsHitTestVisible = false,
+                BorderBrush = Comum.Cor(c ? "#8CEDEDEF" : "#8C3A3A3E")
+            };
+
+            // barra de título: nome à esquerda e X à direita, como o diálogo do Windows
+            var titulo = new TextBlock { Text = tituloJanela, FontFamily = fonte, FontSize = 12, Foreground = texto, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            var fechar = new Border { Width = 46, Height = 38, Background = Brushes.Transparent, CornerRadius = new CornerRadius(0, Raio, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
+            fechar.Child = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, Foreground = texto, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            fechar.MouseEnter += delegate { fechar.Background = Comum.Cor("#E5E81123"); };
+            fechar.MouseLeave += delegate { fechar.Background = Brushes.Transparent; };
+            var barra = new Grid { Height = 38, VerticalAlignment = VerticalAlignment.Top, Background = Brushes.Transparent };
+            barra.Children.Add(titulo); barra.Children.Add(fechar);
+            barra.MouseLeftButtonDown += (s, e) => { if (e.OriginalSource != fechar && e.OriginalSource != fechar.Child) d.DragMove(); };
+
+            var tb = new TextBox
+            {
+                Text = valor, FontFamily = fonte, FontSize = 13, Foreground = texto, CaretBrush = texto, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 6, 10, 6), VerticalContentAlignment = VerticalAlignment.Center, SelectionBrush = (Brush)w.Resources["Azul"]
+            };
+            var campo = new Border
+            {
+                Child = tb, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(16, 44, 16, 0), VerticalAlignment = VerticalAlignment.Top,
+                Background = Comum.Cor(c ? "#99FFFFFF" : "#33FFFFFF"), BorderBrush = Comum.Cor(c ? "#26000000" : "#40FFFFFF")
+            };
+            var ok = new Border
+            {
+                Width = 84, Height = 30, CornerRadius = new CornerRadius(15), Background = (Brush)w.Resources["Azul"], Cursor = Cursors.Hand,
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 16, 16),
+                Child = new TextBlock { Text = "OK", FontFamily = fonte, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
+
             string r = null;
-            ok.Click += delegate { r = tb.Text; d.Close(); };
-            sp.Children.Add(tb); sp.Children.Add(ok); d.Content = sp;
+            Action confirmar = delegate { r = tb.Text; d.Close(); };
+            ok.MouseLeftButtonUp += delegate { confirmar(); };
+            fechar.MouseLeftButtonUp += delegate { d.Close(); };
+            d.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter) { confirmar(); e.Handled = true; }
+                else if (e.Key == Key.Escape) { d.Close(); e.Handled = true; }
+            };
+
+            var cartao = new Grid { Width = L, Height = A, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            cartao.Children.Add(aro); cartao.Children.Add(fundo); cartao.Children.Add(campo); cartao.Children.Add(barra); cartao.Children.Add(ok);
+            var raiz = new Grid(); raiz.Children.Add(cartao); d.Content = raiz;
+
+            Action posicionar = delegate
+            {
+                if (hVidro == IntPtr.Zero || !d.IsLoaded) return;
+                double f = PresentationSource.FromVisual(d).CompositionTarget.TransformToDevice.M22;
+                var p = fundo.PointToScreen(new Point(Recuo, Recuo));
+                Win32.Mover(hVidro, (int)p.X, (int)p.Y, (int)((L - 2 * Recuo) * f), (int)((A - 2 * Recuo) * f));
+            };
             d.Loaded += delegate
             {
+                Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true);
+                posicionar();
                 tb.Focus();
                 int fim = valor.LastIndexOf('.'); tb.Select(0, fim > 0 ? fim : valor.Length);
             };
-            d.ShowDialog();
+            d.LocationChanged += delegate { posicionar(); };
+            try { d.ShowDialog(); }
+            finally { vidro.Close(); }
             return r == null ? null : r.Trim();
         }
 

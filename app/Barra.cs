@@ -39,6 +39,7 @@ namespace MacSkin
         ContextMenu menuSis;
         readonly Dictionary<uint, string> nomes = new Dictionary<uint, string>();
         int wifiGlifo = 0xE701;
+        Canvas wifiDesenho; Path[] wifiPecas;
 
         static void Log(string m) { Comum.Log("barra.log", m); }
 
@@ -80,13 +81,27 @@ namespace MacSkin
             menuSis.Opened += delegate { Win32.SetForegroundWindow(hwnd); };
             Janela.Deactivated += delegate { menuSis.IsOpen = false; };
             Item(esq, logo, s => { menuSis.PlacementTarget = s; menuSis.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menuSis.IsOpen = true; });
-            appAtivo = Rotulo("", FontWeights.SemiBold);
-            Item(esq, appAtivo, null);
+            appAtivo = Rotulo("", FontWeights.SemiBold);   // não exibido: só o logo fica à esquerda
 
             // ---------- direita (na ordem do Mac) ----------
-            Item(dir, Glifo(0xE767, 15), s => Win32.Win(0x41));    // volume
-            wifi = Glifo(0xE701, 15);
-            Item(dir, wifi, s => Win32.Win(0x41));
+            // volume do Mac: alto-falante cheio e dois arcos grossos de pontas redondas
+            var volDesenho = new Canvas { Width = 15, Height = 13, VerticalAlignment = VerticalAlignment.Center };
+            volDesenho.Children.Add(PecaWifi("M1.5,4.8 H4.2 L8,1.6 V11.4 L4.2,8.2 H1.5 Z", true));
+            volDesenho.Children.Add(PecaWifi("M10.4,4.1 A3.4,3.4 0 0 1 10.4,8.9", false));
+            volDesenho.Children.Add(PecaWifi("M12.24,2.26 A6,6 0 0 1 12.24,10.74", false));
+            Item(dir, volDesenho, s => Win32.Win(0x41));    // volume
+            wifi = Glifo(0xE701, 15);   // só para cabo / sem rede; o Wi-Fi é desenhado abaixo
+            // Wi-Fi do Mac: cunha embaixo e dois arcos grossos de pontas redondas; o que passa do sinal fica apagado
+            wifiDesenho = new Canvas { Width = 18, Height = 13, VerticalAlignment = VerticalAlignment.Center };
+            wifiPecas = new[]
+            {
+                PecaWifi("M9,12.2 L6.45,9.65 A3.6,3.6 0 0 1 11.55,9.65 Z", true),
+                PecaWifi("M4.62,7.82 A6.2,6.2 0 0 1 13.38,7.82", false),
+                PecaWifi("M1.65,4.85 A10.4,10.4 0 0 1 16.35,4.85", false)
+            };
+            foreach (var p in wifiPecas) wifiDesenho.Children.Add(p);
+            var wifiBox = new Grid(); wifiBox.Children.Add(wifiDesenho); wifiBox.Children.Add(wifi);
+            Item(dir, wifiBox, s => Win32.Win(0x41));
             // bateria do Mac: pílula branca que enche com a carga, número dentro e o "pino" à direita
             var corpo = new Grid { Width = 25, Height = 12, VerticalAlignment = VerticalAlignment.Center };
             corpo.Children.Add(new Border { CornerRadius = new CornerRadius(3.5), Background = Comum.Cor("#59FFFFFF") });
@@ -146,6 +161,12 @@ namespace MacSkin
             if (acao != null) b.MouseLeftButtonUp += delegate { acao(b); };
             painel.Children.Add(b);
             return b;
+        }
+        static Path PecaWifi(string geo, bool cunha)
+        {
+            var p = new Path { Data = Geometry.Parse(geo), Stroke = Branco, StrokeThickness = cunha ? 1.2 : 2.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round };
+            if (cunha) p.Fill = Branco;
+            return p;
         }
         static TextBlock Rotulo(string txt, FontWeight peso) { return new TextBlock { Text = txt, FontFamily = Texto, FontSize = 13, FontWeight = peso, VerticalAlignment = VerticalAlignment.Center, Foreground = Branco }; }
         static TextBlock Glifo(int cod, double tam) { return new TextBlock { Text = ((char)cod).ToString(), FontFamily = Icones, FontSize = tam, VerticalAlignment = VerticalAlignment.Center, Foreground = Branco }; }
@@ -207,7 +228,11 @@ namespace MacSkin
                 }
                 else itemBat.Visibility = Visibility.Collapsed;   // sem bateria (desktop)
 
-                wifi.Text = ((char)wifiGlifo).ToString();
+                int forca = wifiGlifo == 0xE701 ? 3 : wifiGlifo == 0xE874 ? 2 : wifiGlifo == 0xE873 ? 1 : wifiGlifo == 0xE872 ? 0 : -1;
+                wifiDesenho.Visibility = forca >= 0 ? Visibility.Visible : Visibility.Collapsed;
+                wifi.Visibility = forca >= 0 ? Visibility.Collapsed : Visibility.Visible;
+                if (forca >= 0) for (int i = 0; i < 3; i++) wifiPecas[i].Opacity = i <= forca - 1 || i == 0 ? 1 : 0.35;
+                else wifi.Text = ((char)wifiGlifo).ToString();
                 Janela.Visibility = Win32.TelaCheia(hwnd, telaW, telaH) ? Visibility.Hidden : Visibility.Visible;
             }
             catch (Exception ex) { Log("rápido: " + ex.Message); }
