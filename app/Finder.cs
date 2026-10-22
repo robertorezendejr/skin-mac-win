@@ -101,6 +101,7 @@ namespace MacSkin
             abasGrade = (UniformGrid)w.FindName("abas"); abasFundo = (Border)w.FindName("abasFundo");
             ativa = new Aba(); historico = ativa.Historico; abas.Add(ativa);
             ((Button)w.FindName("novaAba")).Click += delegate { NovaAba(atual); };
+            VigiarArrastoAba();
             voltar = (Button)w.FindName("voltar"); avancar = (Button)w.FindName("avancar");
             vLista = (ToggleButton)w.FindName("vLista"); vIcones = (ToggleButton)w.FindName("vIcones"); vGaleria = (ToggleButton)w.FindName("vGaleria");
 
@@ -434,6 +435,49 @@ namespace MacSkin
             Navegar(historico[pos], false);
         }
 
+        // arrastar uma aba para fora da faixa de abas (para cima ou para baixo) a destaca numa janela nova, como no Mac
+        Aba arrastoAba;
+        void VigiarArrastoAba()
+        {
+            w.PreviewMouseMove += (s, e) =>
+            {
+                if (arrastoAba == null) return;
+                if (e.LeftButton != MouseButtonState.Pressed || abas.Count < 2) { arrastoAba = null; return; }
+                var p = e.GetPosition(abasFundo);
+                if (p.Y >= -24 && p.Y <= abasFundo.ActualHeight + 24) return;
+                var aba = arrastoAba; arrastoAba = null;
+                Destacar(aba, e.GetPosition(w));
+            };
+            w.PreviewMouseLeftButtonUp += delegate { arrastoAba = null; };
+        }
+
+        // a aba vira uma janela que acompanha o mouse enquanto o botão esquerdo continua apertado; soltar fixa a janela
+        void Destacar(Aba aba, Point naJanela)
+        {
+            string pasta = aba.Historico[aba.Pos];
+            var nova = new Finder(pasta); var nw = nova.w;
+            double f = PresentationSource.FromVisual(w).CompositionTarget.TransformToDevice.M11;
+            double nl = w.WindowState == WindowState.Maximized ? w.RestoreBounds.Width : w.ActualWidth;
+            double na = w.WindowState == WindowState.Maximized ? w.RestoreBounds.Height : w.ActualHeight;
+            nw.WindowStartupLocation = WindowStartupLocation.Manual; nw.Width = nl; nw.Height = na;
+            double dx = Math.Min(naJanela.X, nl - 40), dy = 60;   // o mouse segura a janela perto do alto, onde ficava a aba
+            Action seguir = delegate
+            {
+                var c = System.Windows.Forms.Cursor.Position;
+                nw.Left = c.X / f - dx; nw.Top = c.Y / f - dy;
+            };
+            seguir();
+            nw.ShowActivated = false; nw.Show();
+            FecharAba(aba);
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(8) };
+            t.Tick += delegate
+            {
+                if ((System.Windows.Forms.Control.MouseButtons & System.Windows.Forms.MouseButtons.Left) == 0) { t.Stop(); nw.Activate(); return; }
+                seguir();
+            };
+            t.Start();
+        }
+
         void MontarAbas()
         {
             abasGrade.Children.Clear();
@@ -464,7 +508,7 @@ namespace MacSkin
                 };
                 b.MouseEnter += delegate { x.Visibility = Visibility.Visible; if (!eh) b.Background = (Brush)w.Resources["Hover"]; };
                 b.MouseLeave += delegate { if (!eh) { x.Visibility = Visibility.Hidden; b.Background = Brushes.Transparent; } };
-                b.MouseLeftButtonDown += delegate { Trocar(aba); };
+                b.MouseLeftButtonDown += delegate { arrastoAba = aba; Trocar(aba); };   // Trocar refaz as abas: o arrasto é vigiado pela janela
                 b.MouseUp += (s, e) => { if (e.ChangedButton == MouseButton.Middle) FecharAba(aba); };   // botão do meio fecha, como no navegador
                 abasGrade.Children.Add(b);
             }
