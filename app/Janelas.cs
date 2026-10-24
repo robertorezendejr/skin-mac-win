@@ -107,6 +107,8 @@ namespace MacSkin
             return i;
         }
 
+        public static string NomeDoProcesso(uint pid) { return Processo(pid).Processo; }
+
         // na ordem da tela (a de cima primeiro)
         public static List<JanelaApp> Abertas()
         {

@@ -1,4 +1,4 @@
-﻿# Mac Skin Dock: dock no estilo macOS (WPF), sem admin. Rodar com powershell -STA.
+# Mac Skin Dock: dock no estilo macOS (WPF), sem admin. Rodar com powershell -STA.
 # Itens = atalhos em .\dock (ordem pelo nome). Reserva a borda de baixo (AppBar), aumenta os ícones
 # sob o mouse, pula ao abrir, marca os apps abertos e some quando um app está em tela cheia.
 $Dir = $PSScriptRoot
@@ -160,10 +160,20 @@ function Novo-Item($app, $fonte) {
     $pulo = New-Object Windows.Media.TranslateTransform
     $img.RenderTransform = $pulo
     $ponto = New-Object Windows.Shapes.Ellipse -Property @{ Width = 4; Height = 4; VerticalAlignment = 'Bottom'; Margin = '0,0,0,-6'; Visibility = 'Hidden' }
+    $badgeTexto = New-Object Windows.Controls.TextBlock -Property @{
+        FontSize = 9.5; FontWeight = 'Bold'; FontFamily = 'Inter, Segoe UI'; Foreground = [Windows.Media.Brushes]::White
+        HorizontalAlignment = 'Center'; VerticalAlignment = 'Center'; Margin = '0,-1,0,0'
+    }
+    $badge = New-Object Windows.Controls.Border -Property @{
+        Background = (Pincel '#FF3B30'); BorderBrush = [Windows.Media.Brushes]::White; BorderThickness = 1.5
+        CornerRadius = 5; MinWidth = 10; MinHeight = 10; HorizontalAlignment = 'Right'; VerticalAlignment = 'Top'
+        Margin = '0,1,1,0'; Visibility = 'Hidden'; Child = $badgeTexto; IsHitTestVisible = $false
+    }
+    $badge.RenderTransform = $pulo
     $caixa = New-Object Windows.Controls.Grid -Property @{ Width = $Base; Height = $Base; VerticalAlignment = 'Bottom'
         Margin = "$($Gap / 2),0,$($Gap / 2),0"; Background = [Windows.Media.Brushes]::Transparent }
-    [void]$caixa.Children.Add($img); [void]$caixa.Children.Add($ponto)
-    $el = [pscustomobject]@{ Caixa = $caixa; Img = $img; Ponto = $ponto; Pulo = $pulo; App = $app; Centro = 0.0; Atual = 1.0; Alvo = 1.0; Largura = $Base + $Gap }
+    [void]$caixa.Children.Add($img); [void]$caixa.Children.Add($ponto); [void]$caixa.Children.Add($badge)
+    $el = [pscustomobject]@{ Caixa = $caixa; Img = $img; Ponto = $ponto; Badge = $badge; BadgeTexto = $badgeTexto; Pulo = $pulo; App = $app; Centro = 0.0; Atual = 1.0; Alvo = 1.0; Largura = $Base + $Gap; Notif = $null }
     $caixa.Tag = $el
     $caixa.Add_MouseLeftButtonDown({ param($s, $e)
         $script:arrasto = @{ El = $s.Tag; X0 = $e.GetPosition($raiz).X; Ativo = $false }
@@ -280,10 +290,39 @@ function Atualizar {
             foreach ($el in $script:els) { $el.Ponto.Fill = Pincel $(if ($claro) { '#CC1D1D1F' } else { '#CCF5F5F7' }) }
         }
         $abertos = @{}
-        foreach ($p in Get-Process) { if ($p.MainWindowHandle -ne 0) { $abertos[$p.ProcessName.ToLower()] = 1 } }
+        $titulos = @{}
+        foreach ($p in Get-Process) {
+            if ($p.MainWindowHandle -ne 0) {
+                $exe = $p.ProcessName.ToLower()
+                $abertos[$exe] = 1
+                if ($p.MainWindowTitle) { $titulos[$exe] = $p.MainWindowTitle }
+            }
+        }
         $abertos['explorer'] = 1   # como o Finder: sempre aberto
         foreach ($el in $script:els) {
-            if ($el.App.Exe) { $el.Ponto.Visibility = $(if ($abertos[$el.App.Exe.ToLower()]) { 'Visible' } else { 'Hidden' }) }
+            if ($el.App.Exe) {
+                $exe = $el.App.Exe.ToLower()
+                $el.Ponto.Visibility = $(if ($abertos[$exe]) { 'Visible' } else { 'Hidden' })
+                $isTeams = ($exe -eq 'teams' -or $exe -eq 'ms-teams' -or $el.App.Nome -like '*Teams*')
+                $isOutlook = ($exe -eq 'outlook' -or $el.App.Nome -like '*Outlook*')
+                if (-not $isTeams -and -not $isOutlook) {
+                    if ($el.Notif) { $el.Notif = $null; $el.Badge.Visibility = 'Hidden' }
+                    continue
+                }
+                $t = $titulos[$exe]
+                $n = $null
+                if ($t -and ($t -match '\(([0-9+]+)\)')) { $n = $Matches[1] }
+                if ($n -ne $el.Notif) {
+                    $el.Notif = $n
+                    if ($n) {
+                        $el.BadgeTexto.Text = $n
+                        $el.Badge.MinWidth = 16; $el.Badge.MinHeight = 16; $el.Badge.CornerRadius = 8; $el.Badge.Padding = '3,0'
+                        $el.Badge.Visibility = 'Visible'
+                    } else {
+                        $el.Badge.Visibility = 'Hidden'
+                    }
+                }
+            }
         }
         if ($script:lixeira) {
             $cheia = $shellApp.NameSpace(10).Items().Count -gt 0

@@ -32,6 +32,9 @@ namespace MacSkin
         [DllImport("user32.dll")] static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
         delegate bool EnumProc(IntPtr h, IntPtr l);
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+        [DllImport("user32.dll")] public static extern bool RegisterShellHookWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool DeregisterShellHookWindow(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int RegisterWindowMessage(string s);
 
         public static string Classe(IntPtr h) { var s = new StringBuilder(128); GetClassName(h, s, 128); return s.ToString(); }
         public static string Titulo(IntPtr h) { var s = new StringBuilder(256); GetWindowText(h, s, 256); return s.ToString(); }
