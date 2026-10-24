@@ -117,11 +117,13 @@ namespace MacSkin
             {
                 if (!Win32.IsWindowVisible(h) || GetWindow(h, 4) != IntPtr.Zero) return true;            // invisível ou janela "filha" (tem dono)
                 if ((Win32.GetWindowLong(h, -20) & Win32.EX_TOOL) != 0) return true;                       // janela de ferramenta
+                int len = Win32.GetWindowTextLength(h);
+                if (len <= 0) return true;                                                                // sem título: descarta de imediato sem gastar DWM
+                string c = Win32.Classe(h);
+                if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return true;
                 int camuflada; if (DwmGetWindowAttribute(h, 14, out camuflada, 4) == 0 && camuflada != 0) return true;   // app da Store suspenso, outra área de trabalho
                 string t = Win32.Titulo(h);
                 if (t.Length == 0 || t.StartsWith("Mac Skin")) return true;
-                string c = Win32.Classe(h);
-                if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return true;
                 uint pid = Win32.Pid(h);
                 var p = Processo(pid);
                 string aumid = AumidEmCache(h, pid);

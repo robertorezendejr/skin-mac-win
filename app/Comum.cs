@@ -21,13 +21,21 @@ namespace MacSkin
             catch { }
         }
 
+        static bool? temaClaroCache;
+        public static void InvalidarTema() { temaClaroCache = null; }
         public static bool TemaClaro()
         {
-            using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            if (temaClaroCache.HasValue) return temaClaroCache.Value;
+            try
             {
-                object v = k == null ? null : k.GetValue("AppsUseLightTheme");
-                return v == null || (int)v != 0;
+                using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                {
+                    object v = k == null ? null : k.GetValue("AppsUseLightTheme");
+                    temaClaroCache = (v == null || (int)v != 0);
+                }
             }
+            catch { temaClaroCache = true; }
+            return temaClaroCache.Value;
         }
 
         public static SolidColorBrush Cor(string hex)
