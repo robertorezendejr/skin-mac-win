@@ -28,6 +28,7 @@ namespace MacSkin
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr depois, int x, int y, int w, int hh, uint f);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+        [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr pai, IntPtr depois, string classe, string titulo);
         [DllImport("user32.dll")] static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
         delegate bool EnumProc(IntPtr h, IntPtr l);
@@ -37,7 +38,14 @@ namespace MacSkin
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int RegisterWindowMessage(string s);
 
         public static string Classe(IntPtr h) { var s = new StringBuilder(128); GetClassName(h, s, 128); return s.ToString(); }
-        public static string Titulo(IntPtr h) { var s = new StringBuilder(256); GetWindowText(h, s, 256); return s.ToString(); }
+        public static string Titulo(IntPtr h)
+        {
+            int len = GetWindowTextLength(h);
+            if (len <= 0) return string.Empty;
+            var s = new StringBuilder(len + 1);
+            GetWindowText(h, s, len + 1);
+            return s.ToString();
+        }
         public static uint Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
 
         // estilos estendidos: fora do Alt+Tab (TOOLWINDOW), não rouba foco (NOACTIVATE), clique atravessa (TRANSPARENT)
@@ -79,12 +87,13 @@ namespace MacSkin
         // barra de tarefas do Windows: oculta de vez (senão sobe por cima da dock quando o mouse encosta embaixo)
         // (a "Shell_TrayWnd" do próprio Mac Skin, que recebe os ícones da bandeja, fica de fora)
         static readonly uint Eu = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+        static readonly string[] classesBarra = { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" };
         public static void BarraWindows(bool mostrar)
         {
-            foreach (var c in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+            for (int i = 0; i < classesBarra.Length; i++)
             {
                 IntPtr h = IntPtr.Zero;
-                while ((h = FindWindowEx(IntPtr.Zero, h, c, null)) != IntPtr.Zero)
+                while ((h = FindWindowEx(IntPtr.Zero, h, classesBarra[i], null)) != IntPtr.Zero)
                     if (Pid(h) != Eu && IsWindowVisible(h) != mostrar) ShowWindow(h, mostrar ? 5 : 0);
             }
         }

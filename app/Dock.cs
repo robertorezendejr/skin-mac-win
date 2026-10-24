@@ -39,6 +39,7 @@ namespace MacSkin
             public JanelaApp Modelo;          // app aberto: dados para "Manter na Dock"
             public List<JanelaApp> Janelas = new List<JanelaApp>();
             public string Notificacao;        // null = sem notificação, "" = bolinha vermelha, "1", "2" = número
+            public bool IsTeams, IsOutlook;   // pré-calculado na criação: evita checks de texto repetidos
         }
 
         readonly string pasta = System.IO.Path.Combine(Comum.Dir, "dock");
@@ -144,7 +145,12 @@ namespace MacSkin
             Janela.MouseMove += AoMoverMouse;
             Janela.MouseLeave += delegate { foreach (var el in els) el.Alvo = 1; sobre = null; Animar(); };
             dock.SizeChanged += delegate { Animar(); };   // vidro acompanha quando a dock muda de tamanho
-            Bandeja.Mudou += delegate { try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { } };
+            Bandeja.Mudou += delegate
+            {
+                RecalcularOutlookTray();
+                try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { }
+            };
+            RecalcularOutlookTray();
 
             Janela.SourceInitialized += delegate
             {
@@ -164,14 +170,53 @@ namespace MacSkin
 
             var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
             t.Tick += delegate { Atualizar(); }; t.Start();
-            // o Explorer volta a mostrar a barra (ao reiniciar, Win+T...): checagem rápida e barata
-            var tb = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            // checagem da barra: 1 s é mais que suficiente e economiza 75% das chamadas
+            var tb = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             tb.Tick += delegate { if (!mostrarBarra) Win32.BarraWindows(false); }; tb.Start();
+        }
+
+        bool outlookNovoEmail;
+        void RecalcularOutlookTray()
+        {
+            bool novo = false;
+            int countOutlook = 0;
+            for (int i = 0; i < Bandeja.Icones.Count; i++)
+            {
+                var ic = Bandeja.Icones[i];
+                if (ic.Janela == IntPtr.Zero) continue;
+                uint pid = Win32.Pid(ic.Janela);
+                if (pid == 0) continue;
+                if (string.Equals(Janelas.NomeDoProcesso(pid), "outlook", StringComparison.OrdinalIgnoreCase))
+                {
+                    countOutlook++;
+                    string dica = ic.Dica;
+                    if (!string.IsNullOrEmpty(dica))
+                    {
+                        if (dica.IndexOf("novas", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            dica.IndexOf("unread", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            dica.IndexOf("não lidas", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            dica.IndexOf("new mail", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            (dica.IndexOf("e-mail", StringComparison.OrdinalIgnoreCase) >= 0 && dica.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) < 0) ||
+                            !string.Equals(dica, "Microsoft Outlook", StringComparison.OrdinalIgnoreCase))
+                        {
+                            novo = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (countOutlook > 1) novo = true;
+            outlookNovoEmail = novo;
         }
 
         IntPtr AoReceberMensagemWin32(IntPtr h, int m, IntPtr w, IntPtr l, ref bool handled)
         {
-            if (m == msgShellHook)
+            if (m == 0x001A)   // WM_SETTINGCHANGE: tema do Windows mudou, limpa cache e atualiza
+            {
+                Comum.InvalidarTema();
+                try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { }
+            }
+            else if (m == msgShellHook)
             {
                 int code = w.ToInt32();
                 if (code == 0x8006 || code == 6)   // HSHELL_FLASH, HSHELL_REDRAW
@@ -233,12 +278,19 @@ namespace MacSkin
                     if (ico.Length > 0 || !porAppsFolder)
                     {
                         var img = Comum.Icone(ico.Length > 0 ? ico : l.Alvo.Length > 0 ? l.Alvo : arq);
-                        if (img != null) { var el = NovoItem(nome, arq, exe, img, true); el.AppId = appId; }
+                        if (img != null)
+                        {
+                            var el = NovoItem(nome, arq, exe, img, true); el.AppId = appId;
+                            if (!el.IsTeams && appId != null && appId.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0) el.IsTeams = true;
+                            if (!el.IsOutlook && appId != null && appId.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0) el.IsOutlook = true;
+                        }
                     }
                     else
                     {
                         // fixado com "Manter na Dock" sem ícone próprio: o ícone vem do próprio app
                         var el = NovoItem(nome, arq, exe, null, true); el.AppId = appId;
+                        if (!el.IsTeams && appId != null && appId.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0) el.IsTeams = true;
+                        if (!el.IsOutlook && appId != null && appId.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0) el.IsOutlook = true;
                         PorIcone(el, appId, null);
                     }
                 }
@@ -265,6 +317,11 @@ namespace MacSkin
         Item NovoItem(string nome, string abrir, string exe, ImageSource img, bool fixo)
         {
             var el = new Item { Nome = nome, Abrir = abrir, Exe = exe, Fixo = fixo };
+            el.IsTeams = string.Equals(exe, "teams", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(exe, "ms-teams", StringComparison.OrdinalIgnoreCase)
+                || (nome != null && nome.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0);
+            el.IsOutlook = string.Equals(exe, "outlook", StringComparison.OrdinalIgnoreCase)
+                || (nome != null && nome.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0);
             el.Img = new Image { Source = img, Stretch = Stretch.Uniform };
             RenderOptions.SetBitmapScalingMode(el.Img, BitmapScalingMode.HighQuality);
             el.Pulo = new TranslateTransform(); el.Img.RenderTransform = el.Pulo;
@@ -529,34 +586,62 @@ namespace MacSkin
         void AtualizarAbertos()
         {
             var janelas = Janelas.Abertas();
-            foreach (var el in els) el.Janelas.Clear();
-            var fixados = els.Where(e => e.Fixo).ToList();
-            var finder = fixados.FirstOrDefault(e => e.Exe == "explorer");
-            var sobra = new List<JanelaApp>();
-            foreach (var j in janelas)
+            for (int i = 0; i < els.Count; i++) els[i].Janelas.Clear();
+
+            Item finder = null;
+            for (int i = 0; i < els.Count; i++)
             {
+                if (els[i].Fixo && els[i].Exe == "explorer") { finder = els[i]; break; }
+            }
+
+            var sobra = new List<JanelaApp>();
+            for (int i = 0; i < janelas.Count; i++)
+            {
+                var j = janelas[i];
                 Item dono = null;
                 // Finder: as nossas janelas do Finder e as do Explorador de Arquivos
                 if (j.Processo == "macskin" || (j.Processo == "explorer" && Win32.Classe(j.H) == "CabinetWClass")) dono = finder;
-                if (dono == null) dono = fixados.FirstOrDefault(e => Combina(e, j));
-                if (dono != null) dono.Janelas.Add(j); else if (!Ocultos().Contains(j.Chave)) sobra.Add(j);
+                if (dono == null)
+                {
+                    for (int k = 0; k < els.Count; k++)
+                    {
+                        if (els[k].Fixo && Combina(els[k], j)) { dono = els[k]; break; }
+                    }
+                }
+                if (dono != null) dono.Janelas.Add(j);
+                else if (!Ocultos().Contains(j.Chave)) sobra.Add(j);
             }
-            var abertos = els.Where(e => !e.Fixo && e != lixeira).ToList();
-            foreach (var grupo in sobra.GroupBy(j => j.Chave))
+
+            for (int i = 0; i < sobra.Count; i++)
             {
-                var el = abertos.FirstOrDefault(e => e.Chave == grupo.Key);
+                var j = sobra[i];
+                Item el = null;
+                for (int k = 0; k < els.Count; k++)
+                {
+                    if (!els[k].Fixo && els[k] != lixeira && els[k].Chave == j.Chave) { el = els[k]; break; }
+                }
                 if (el == null)
                 {
-                    var j = grupo.First();
                     el = NovoItem(Janelas.Nome(j), null, j.Processo, null, false);
-                    el.Chave = grupo.Key; el.Modelo = j; el.Ponto.Fill = corPonto;
+                    el.Chave = j.Chave; el.Modelo = j; el.Ponto.Fill = corPonto;
                     PorIcone(el, j.Aumid, j.Caminho);
-                    abertos.Add(el);
                 }
-                el.Janelas.AddRange(grupo);
+                el.Janelas.Add(j);
             }
-            foreach (var el in abertos.Where(e => e.Janelas.Count == 0).ToList()) TirarDaLinha(el);
-            sepAbertos.Visibility = els.Any(e => !e.Fixo && e != lixeira) ? Visibility.Visible : Visibility.Collapsed;
+
+            for (int i = els.Count - 1; i >= 0; i--)
+            {
+                var el = els[i];
+                if (!el.Fixo && el != lixeira && el.Janelas.Count == 0)
+                    TirarDaLinha(el);
+            }
+
+            bool temAbertosNaoFixos = false;
+            for (int i = 0; i < els.Count; i++)
+            {
+                if (!els[i].Fixo && els[i] != lixeira) { temAbertosNaoFixos = true; break; }
+            }
+            sepAbertos.Visibility = temAbertosNaoFixos ? Visibility.Visible : Visibility.Collapsed;
 
             var fg = Win32.GetForegroundWindow();
             if (fg != IntPtr.Zero)
@@ -564,52 +649,18 @@ namespace MacSkin
                 lock (janelasPiscando) { janelasPiscando.Remove(fg); }
             }
 
-            bool outlookNovoEmail = false;
-            int countOutlookIcons = 0;
-            foreach (var ic in Bandeja.Icones)
+            for (int i = 0; i < els.Count; i++)
             {
-                if (ic.Janela == IntPtr.Zero) continue;
-                uint pid = Win32.Pid(ic.Janela);
-                if (pid == 0) continue;
-                if (string.Equals(Janelas.NomeDoProcesso(pid), "outlook", StringComparison.OrdinalIgnoreCase))
-                {
-                    countOutlookIcons++;
-                    string dica = ic.Dica ?? "";
-                    if (dica.IndexOf("novas", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        dica.IndexOf("unread", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        dica.IndexOf("não lidas", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        dica.IndexOf("new mail", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        (dica.Length > 0 && !string.Equals(dica, "Microsoft Outlook", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        outlookNovoEmail = true;
-                    }
-                }
-            }
-            if (countOutlookIcons > 1) outlookNovoEmail = true;
-
-            foreach (var el in els)
-            {
-                if (el != lixeira) el.Ponto.Visibility = el.Janelas.Count > 0 || el == finder ? Visibility.Visible : Visibility.Hidden;   // Finder sempre aberto, como no Mac
-                AtualizarBadge(el, outlookNovoEmail);
+                var el = els[i];
+                if (el != lixeira) el.Ponto.Visibility = el.Janelas.Count > 0 || el == finder ? Visibility.Visible : Visibility.Hidden;
+                AtualizarBadge(el);
             }
             CalcularCentros();
         }
 
-        void AtualizarBadge(Item el, bool outlookNovoEmail)
+        void AtualizarBadge(Item el)
         {
-            if (el == lixeira) { el.Badge.Visibility = Visibility.Hidden; return; }
-
-            bool isTeams = string.Equals(el.Exe, "teams", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(el.Exe, "ms-teams", StringComparison.OrdinalIgnoreCase)
-                || (el.AppId != null && el.AppId.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0)
-                || (el.Nome != null && el.Nome.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0);
-
-            bool isOutlook = string.Equals(el.Exe, "outlook", StringComparison.OrdinalIgnoreCase)
-                || (el.AppId != null && el.AppId.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0)
-                || (el.Nome != null && el.Nome.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0);
-
-            // Única e exclusivamente para o Teams e o Outlook Classic
-            if (!isTeams && !isOutlook)
+            if (el == lixeira || (!el.IsTeams && !el.IsOutlook))
             {
                 if (el.Notificacao != null)
                 {
@@ -621,12 +672,13 @@ namespace MacSkin
 
             string notif = null;
 
-            // 1. Título das janelas abertas (ex: "(1) | Chat | Microsoft Teams")
-            foreach (var j in el.Janelas)
+            // 1. Título das janelas abertas
+            for (int i = 0; i < el.Janelas.Count; i++)
             {
+                var j = el.Janelas[i];
                 string t = Win32.Titulo(j.H);
                 if (string.IsNullOrEmpty(t)) t = j.Titulo ?? "";
-                if (t.Length > 0)
+                if (t.Length > 0 && t.IndexOf('(') >= 0)
                 {
                     var m = regTituloGeral.Match(t);
                     if (m.Success)
@@ -642,8 +694,8 @@ namespace MacSkin
                 }
             }
 
-            // 2. Outlook com novo e-mail na bandeja
-            if (notif == null && isOutlook && outlookNovoEmail)
+            // 2. Outlook com novo e-mail na bandeja (booleano em cache, zero chamada)
+            if (notif == null && el.IsOutlook && outlookNovoEmail)
                 notif = "";
 
             // 3. Janelas piscando / solicitando atenção (HSHELL_FLASH)
@@ -651,9 +703,9 @@ namespace MacSkin
             {
                 lock (janelasPiscando)
                 {
-                    foreach (var j in el.Janelas)
+                    for (int i = 0; i < el.Janelas.Count; i++)
                     {
-                        if (janelasPiscando.Contains(j.H))
+                        if (janelasPiscando.Contains(el.Janelas[i].H))
                         {
                             notif = "";
                             break;

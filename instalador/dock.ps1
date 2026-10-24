@@ -311,7 +311,7 @@ function Atualizar {
                 }
                 $t = $titulos[$exe]
                 $n = $null
-                if ($t -and ($t -match '\(([0-9+]+)\)')) { $n = $Matches[1] }
+                if ($t -and ($t.IndexOf('(') -ge 0) -and ($t -match '\(([0-9+]+)\)')) { $n = $Matches[1] }
                 if ($n -ne $el.Notif) {
                     $el.Notif = $n
                     if ($n) {

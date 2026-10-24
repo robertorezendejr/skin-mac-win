@@ -140,7 +140,7 @@ namespace MacSkin
             endereco.LostKeyboardFocus += delegate { FecharCaminho(); };
             busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) { buscaAuto.Stop(); BuscarTudo(busca.Text); } if (e.Key == Key.Escape) { busca.Text = ""; lista.Focus(); } };
 
-            foreach (var c in new Selector[] { lista, icones })
+            foreach (var c in new ListBox[] { lista, icones })
             {
                 c.MouseDoubleClick += (s, e) => { if (Sob(e) != null) AbrirSelecionados(); };
                 c.KeyDown += Teclas;
@@ -164,7 +164,26 @@ namespace MacSkin
                 c.Drop += AoSoltar;
                 c.DragOver += (s, e) => { e.Effects = Efeito(e, DestinoSoltar(e)); e.Handled = true; };
                 c.ContextMenu = new ContextMenu();   // sem um menu inicial o evento abaixo não dispara
-                c.ContextMenuOpening += (s, e) => { ((FrameworkElement)s).ContextMenu = MenuItens(); };
+                c.PreviewMouseRightButtonDown += (s, ev) =>
+                {
+                    var en = Sob(ev);
+                    if (en != null)
+                    {
+                        if (!c.SelectedItems.Contains(en))
+                        {
+                            c.SelectedItem = en;
+                        }
+                    }
+                    else
+                    {
+                        c.UnselectAll();
+                    }
+                };
+                c.ContextMenuOpening += (s, ev) =>
+                {
+                    ev.Handled = true;
+                    AbrirMenuContexto();
+                };
             }
             lista.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler((s, e) =>
             {
@@ -827,30 +846,33 @@ namespace MacSkin
         }
 
         // ---------- menus ----------
-        ContextMenu MenuItens()
+        void AbrirMenuContexto()
         {
             var sel = Selecionados().ToList();
-            var m = new ContextMenu();
-            Action<string, Action, bool> op = (nome, acao, ativo) => { var i = new MenuItem { Header = nome, IsEnabled = ativo }; i.Click += delegate { acao(); }; m.Items.Add(i); };
-            bool tem = sel.Count > 0, um = sel.Count == 1, pastaReal = atual != Recentes;
-            op("Abrir", AbrirSelecionados, tem);
-            op("Abrir com…", () => Shell.AbrirCom(sel[0].Caminho), um && !sel[0].EhPasta);
-            op("Abrir em Nova Aba", () => { foreach (var e in sel.Where(x => x.EhPasta)) NovaAba(e.Caminho); }, sel.Any(x => x.EhPasta));
-            op("Abrir em Nova Janela", () => { foreach (var e in sel.Where(x => x.EhPasta)) NovaJanela(e.Caminho); }, sel.Any(x => x.EhPasta));
-            m.Items.Add(new Separator());
-            op("Mover para o Lixo", () => Lixeira(false), tem);
-            m.Items.Add(new Separator());
-            op("Renomear", Renomear, um);
-            op("Copiar", () => Copiar(false), tem);
-            op("Recortar", () => Copiar(true), tem);
-            op("Colar Item", Colar, pastaReal && Clipboard.ContainsFileDropList());
-            op("Nova Pasta", NovaPasta, pastaReal);
-            m.Items.Add(new Separator());
-            op("Copiar Caminho", () => Clipboard.SetText(tem ? string.Join(Environment.NewLine, sel.Select(e => e.Caminho)) : atual), true);
-            op("Visualização Rápida", AlternarPrevia, tem);
-            op("Obter Informações", () => Shell.Propriedades(tem ? sel[0].Caminho : atual), tem || pastaReal);
-            op("Mostrar no Explorador", MostrarNoExplorador, true);
-            return m;
+            var hwnd = new WindowInteropHelper(w).Handle;
+            if (sel.Count > 0)
+            {
+                var caminhos = sel.Select(x => x.Caminho).ToList();
+                ShellMenu.MostrarMenu(
+                    hwnd,
+                    caminhos,
+                    () => Carregar(atual, false),
+                    sel.Any(x => x.EhPasta) ? (Action<string, bool>)((c, novaJanela) => { if (novaJanela) NovaJanela(c); else NovaAba(c); }) : null,
+                    () => AlternarPrevia()
+                );
+            }
+            else if (atual != Recentes && Directory.Exists(atual))
+            {
+                ShellMenu.MostrarMenuFundo(
+                    hwnd,
+                    atual,
+                    () => Carregar(atual, false),
+                    NovaPasta,
+                    Colar,
+                    () => Clipboard.ContainsFileDropList(),
+                    MostrarNoExplorador
+                );
+            }
         }
 
         void MenuMais(Button b)
