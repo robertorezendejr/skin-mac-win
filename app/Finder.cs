@@ -570,6 +570,7 @@ namespace MacSkin
                 foreach (var e in Ordem(t.Result)) itens.Add(e);
                 PedirIcones();
                 if (antes != null) foreach (var e in itens.Where(x => antes.Contains(x.Caminho))) lista.SelectedItems.Add(e);
+                AtualizarStatusSelecao();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
@@ -704,6 +705,7 @@ namespace MacSkin
                 return;
             }
             visao.Filter = t.Length == 0 ? null : (Predicate<object>)(o => ((Entrada)o).Nome.IndexOf(t, StringComparison.CurrentCultureIgnoreCase) >= 0);
+            AtualizarStatusSelecao();
         }
 
         // Enter na busca: procura em todas as subpastas (em segundo plano, até 2000 resultados)
@@ -744,6 +746,7 @@ namespace MacSkin
                 itens.Clear(); foreach (var e in Ordem(t.Result)) itens.Add(e);
                 titulo.Text = "Busca: “" + termo + "” (" + t.Result.Count + ")";
                 PedirIcones();
+                AtualizarStatusSelecao();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
@@ -759,7 +762,9 @@ namespace MacSkin
         {
             if (statusSelecao == null) return;
             int n = modo == "lista" ? lista.SelectedItems.Count : icones.SelectedItems.Count;
-            statusSelecao.Text = n == 1 ? "1 item selecionado" : n.ToString("N0", PtBr) + " itens selecionados";
+            int total = visao == null ? itens.Count : visao.Cast<object>().Count();
+            string itensTexto = total == 1 ? "1 item" : total.ToString("N0", PtBr) + " itens";
+            statusSelecao.Text = n == 0 ? itensTexto : itensTexto + " | " + (n == 1 ? "1 item selecionado" : n.ToString("N0", PtBr) + " itens selecionados");
         }
 
         static Entrada Sob(MouseEventArgs e)
@@ -1345,7 +1350,14 @@ namespace MacSkin
     <Grid.ColumnDefinitions><ColumnDefinition x:Name='colLateral' Width='228' MinWidth='150' MaxWidth='520'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
     <!-- barra lateral sobre o vidro -->
     <Border Background='{DynamicResource Lateral}'>
-      <ScrollViewer VerticalScrollBarVisibility='Auto' Margin='0,46,0,8'><StackPanel x:Name='lateral' TextElement.Foreground='{DynamicResource Texto}'/></ScrollViewer>
+      <Grid>
+        <Grid.RowDefinitions><RowDefinition Height='*'/><RowDefinition Height='30'/></Grid.RowDefinitions>
+        <ScrollViewer Grid.Row='0' VerticalScrollBarVisibility='Auto' Margin='0,46,0,8'><StackPanel x:Name='lateral' TextElement.Foreground='{DynamicResource Texto}'/></ScrollViewer>
+        <!-- contagem no canto inferior esquerdo, na mesma posiÃ§Ã£o do Explorador do Windows -->
+        <Border Grid.Row='1' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,0'>
+          <TextBlock x:Name='statusSelecao' Margin='10,0' VerticalAlignment='Center' Foreground='{DynamicResource TextoSec}' FontSize='11.5' Text='0 itens'/>
+        </Border>
+      </Grid>
     </Border>
     <TextBlock Text='Finder' Margin='18,16,0,0' FontWeight='SemiBold' Foreground='{DynamicResource TextoSec}' IsHitTestVisible='False'/>
     <!-- arrastar a divisa alarga ou estreita a barra lateral -->
@@ -1415,10 +1427,9 @@ namespace MacSkin
           <UniformGrid x:Name='abas' Rows='1'/></DockPanel></Border>
       <!-- caminho -->
       <Border x:Name='caminhoFundo' Grid.Row='3' BorderBrush='{DynamicResource Borda}' BorderThickness='0,1,0,0' Background='Transparent'>
-        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width='170'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-          <TextBlock x:Name='statusSelecao' Grid.Column='0' Margin='10,0' VerticalAlignment='Center' Foreground='{DynamicResource TextoSec}' FontSize='11.5' Text='0 itens selecionados'/>
-          <StackPanel x:Name='caminho' Grid.Column='1' Orientation='Horizontal' Margin='0,0,10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/>
-          <TextBox x:Name='endereco' Grid.Column='1' Visibility='Collapsed' Margin='0,0,8,0' Padding='4,2' VerticalAlignment='Center' FontSize='11.5' Background='{DynamicResource Campo}' BorderThickness='0'
+        <Grid>
+          <StackPanel x:Name='caminho' Orientation='Horizontal' Margin='0,0,10,0' VerticalAlignment='Center' TextElement.Foreground='{DynamicResource TextoSec}'/>
+          <TextBox x:Name='endereco' Visibility='Collapsed' Margin='0,0,8,0' Padding='4,2' VerticalAlignment='Center' FontSize='11.5' Background='{DynamicResource Campo}' BorderThickness='0'
                    Foreground='{DynamicResource Texto}' CaretBrush='{DynamicResource Texto}'/></Grid></Border>
     </Grid>
   </Grid>
