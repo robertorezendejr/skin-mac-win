@@ -31,17 +31,23 @@ namespace MacSkin
         class Item
         {
             public Grid Caixa; public Image Img; public Ellipse Ponto; public TranslateTransform Pulo;
+            public Border Badge; public TextBlock BadgeTexto;
             public string Nome, Abrir, Exe; public double Centro, Atual = 1, Alvo = 1, Largura = Base + Gap;
             public bool Fixo;                 // atalho na pasta da dock (senão é só um app aberto)
             public string AppId;              // identidade do app quando o atalho abre por shell:AppsFolder
             public string Chave;              // app aberto não fixado: identidade da janela (ou executável)
             public JanelaApp Modelo;          // app aberto: dados para "Manter na Dock"
             public List<JanelaApp> Janelas = new List<JanelaApp>();
+            public string Notificacao;        // null = sem notificação, "" = bolinha vermelha, "1", "2" = número
         }
 
         readonly string pasta = System.IO.Path.Combine(Comum.Dir, "dock");
         readonly string lixo = System.IO.Path.Combine(Comum.Dir, @"icones\TrashIcon.ico");
         readonly string lixoCheio = System.IO.Path.Combine(Comum.Dir, @"icones\FullTrashIcon.ico");
+        static readonly Regex regTituloInicio = new Regex(@"^\s*\(([0-9+]+)\)", RegexOptions.Compiled);
+        static readonly Regex regTituloGeral = new Regex(@"\(([0-9+]+)\)", RegexOptions.Compiled);
+        readonly HashSet<IntPtr> janelasPiscando = new HashSet<IntPtr>();
+        int msgShellHook;
 
         public Window Janela;
         Window vidro;
@@ -138,11 +144,16 @@ namespace MacSkin
             Janela.MouseMove += AoMoverMouse;
             Janela.MouseLeave += delegate { foreach (var el in els) el.Alvo = 1; sobre = null; Animar(); };
             dock.SizeChanged += delegate { Animar(); };   // vidro acompanha quando a dock muda de tamanho
+            Bandeja.Mudou += delegate { try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { } };
 
             Janela.SourceInitialized += delegate
             {
                 hwnd = new WindowInteropHelper(Janela).Handle;
                 Win32.Estilo(hwnd, Win32.EX_TOOL | Win32.EX_NOACTIVATE);
+                var src = HwndSource.FromHwnd(hwnd);
+                if (src != null) src.AddHook(AoReceberMensagemWin32);
+                Win32.RegisterShellHookWindow(hwnd);
+                msgShellHook = Win32.RegisterWindowMessage("SHELLHOOK");
                 f = PresentationSource.FromVisual(Janela).CompositionTarget.TransformToDevice.M22;
                 telaW = (int)(SystemParameters.PrimaryScreenWidth * f);
                 telaH = (int)(SystemParameters.PrimaryScreenHeight * f);
@@ -158,6 +169,31 @@ namespace MacSkin
             tb.Tick += delegate { if (!mostrarBarra) Win32.BarraWindows(false); }; tb.Start();
         }
 
+        IntPtr AoReceberMensagemWin32(IntPtr h, int m, IntPtr w, IntPtr l, ref bool handled)
+        {
+            if (m == msgShellHook)
+            {
+                int code = w.ToInt32();
+                if (code == 0x8006 || code == 6)   // HSHELL_FLASH, HSHELL_REDRAW
+                {
+                    IntPtr fl = l;
+                    if (fl != IntPtr.Zero)
+                    {
+                        lock (janelasPiscando) { janelasPiscando.Add(fl); }
+                        try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { }
+                    }
+                }
+                else if (code == 4 || code == 0x8004)   // HSHELL_WINDOWACTIVATED, HSHELL_RUDEAPPACTIVATED
+                {
+                    IntPtr ativada = l;
+                    bool alterou = false;
+                    lock (janelasPiscando) { alterou = janelasPiscando.Remove(ativada); }
+                    if (alterou) try { Janela.Dispatcher.BeginInvoke((Action)Atualizar); } catch { }
+                }
+            }
+            return IntPtr.Zero;
+        }
+
         public void Mostrar()
         {
             vidro.Show();
@@ -168,7 +204,12 @@ namespace MacSkin
 
         public void Fechar()
         {
-            if (hwnd != IntPtr.Zero) { Win32.Liberar(hwnd); hwnd = IntPtr.Zero; }
+            if (hwnd != IntPtr.Zero)
+            {
+                Win32.DeregisterShellHookWindow(hwnd);
+                Win32.Liberar(hwnd);
+                hwnd = IntPtr.Zero;
+            }
             Win32.BarraWindows(true);
             try { vidro.Close(); } catch { }
         }
@@ -228,8 +269,34 @@ namespace MacSkin
             RenderOptions.SetBitmapScalingMode(el.Img, BitmapScalingMode.HighQuality);
             el.Pulo = new TranslateTransform(); el.Img.RenderTransform = el.Pulo;
             el.Ponto = new Ellipse { Width = 4, Height = 4, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -6), Visibility = Visibility.Hidden };
+            el.BadgeTexto = new TextBlock
+            {
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold,
+                FontFamily = new FontFamily("Inter, Segoe UI"),
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, -1, 0, 0)
+            };
+            el.Badge = new Border
+            {
+                Background = Comum.Cor("#FF3B30"),
+                BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(1.5),
+                CornerRadius = new CornerRadius(5),
+                MinWidth = 10,
+                MinHeight = 10,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 1, 1, 0),
+                Visibility = Visibility.Hidden,
+                Child = el.BadgeTexto,
+                IsHitTestVisible = false
+            };
+            el.Badge.RenderTransform = el.Pulo;
             el.Caixa = new Grid { Width = Base, Height = Base, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(Gap / 2, 0, Gap / 2, 0), Background = Brushes.Transparent };
-            el.Caixa.Children.Add(el.Img); el.Caixa.Children.Add(el.Ponto);
+            el.Caixa.Children.Add(el.Img); el.Caixa.Children.Add(el.Ponto); el.Caixa.Children.Add(el.Badge);
             el.Caixa.MouseLeftButtonDown += (s, e) => { arrastando = el; arrastoX0 = e.GetPosition(raiz).X; arrastoAtivo = false; el.Caixa.CaptureMouse(); };
             el.Caixa.MouseLeftButtonUp += delegate
             {
@@ -303,6 +370,11 @@ namespace MacSkin
         {
             try
             {
+                lock (janelasPiscando)
+                {
+                    foreach (var j in el.Janelas) janelasPiscando.Remove(j.H);
+                }
+
                 // Lixeira: um clique abre, outro clique fecha
                 if (el == lixeira)
                 {
@@ -485,9 +557,143 @@ namespace MacSkin
             }
             foreach (var el in abertos.Where(e => e.Janelas.Count == 0).ToList()) TirarDaLinha(el);
             sepAbertos.Visibility = els.Any(e => !e.Fixo && e != lixeira) ? Visibility.Visible : Visibility.Collapsed;
+
+            var fg = Win32.GetForegroundWindow();
+            if (fg != IntPtr.Zero)
+            {
+                lock (janelasPiscando) { janelasPiscando.Remove(fg); }
+            }
+
+            bool outlookNovoEmail = false;
+            int countOutlookIcons = 0;
+            foreach (var ic in Bandeja.Icones)
+            {
+                if (ic.Janela == IntPtr.Zero) continue;
+                uint pid = Win32.Pid(ic.Janela);
+                if (pid == 0) continue;
+                if (string.Equals(Janelas.NomeDoProcesso(pid), "outlook", StringComparison.OrdinalIgnoreCase))
+                {
+                    countOutlookIcons++;
+                    string dica = ic.Dica ?? "";
+                    if (dica.IndexOf("novas", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        dica.IndexOf("unread", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        dica.IndexOf("não lidas", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        dica.IndexOf("new mail", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        (dica.Length > 0 && !string.Equals(dica, "Microsoft Outlook", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        outlookNovoEmail = true;
+                    }
+                }
+            }
+            if (countOutlookIcons > 1) outlookNovoEmail = true;
+
             foreach (var el in els)
+            {
                 if (el != lixeira) el.Ponto.Visibility = el.Janelas.Count > 0 || el == finder ? Visibility.Visible : Visibility.Hidden;   // Finder sempre aberto, como no Mac
+                AtualizarBadge(el, outlookNovoEmail);
+            }
             CalcularCentros();
+        }
+
+        void AtualizarBadge(Item el, bool outlookNovoEmail)
+        {
+            if (el == lixeira) { el.Badge.Visibility = Visibility.Hidden; return; }
+
+            bool isTeams = string.Equals(el.Exe, "teams", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(el.Exe, "ms-teams", StringComparison.OrdinalIgnoreCase)
+                || (el.AppId != null && el.AppId.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0)
+                || (el.Nome != null && el.Nome.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            bool isOutlook = string.Equals(el.Exe, "outlook", StringComparison.OrdinalIgnoreCase)
+                || (el.AppId != null && el.AppId.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0)
+                || (el.Nome != null && el.Nome.IndexOf("Outlook", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            // Única e exclusivamente para o Teams e o Outlook Classic
+            if (!isTeams && !isOutlook)
+            {
+                if (el.Notificacao != null)
+                {
+                    el.Notificacao = null;
+                    el.Badge.Visibility = Visibility.Hidden;
+                }
+                return;
+            }
+
+            string notif = null;
+
+            // 1. Título das janelas abertas (ex: "(1) | Chat | Microsoft Teams")
+            foreach (var j in el.Janelas)
+            {
+                string t = Win32.Titulo(j.H);
+                if (string.IsNullOrEmpty(t)) t = j.Titulo ?? "";
+                if (t.Length > 0)
+                {
+                    var m = regTituloGeral.Match(t);
+                    if (m.Success)
+                    {
+                        string cont = m.Groups[1].Value;
+                        int n;
+                        if (int.TryParse(cont.TrimEnd('+'), out n) && n > 0)
+                        {
+                            notif = cont;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 2. Outlook com novo e-mail na bandeja
+            if (notif == null && isOutlook && outlookNovoEmail)
+                notif = "";
+
+            // 3. Janelas piscando / solicitando atenção (HSHELL_FLASH)
+            if (notif == null)
+            {
+                lock (janelasPiscando)
+                {
+                    foreach (var j in el.Janelas)
+                    {
+                        if (janelasPiscando.Contains(j.H))
+                        {
+                            notif = "";
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (notif != el.Notificacao)
+            {
+                el.Notificacao = notif;
+                if (notif != null)
+                {
+                    if (string.IsNullOrEmpty(notif))
+                    {
+                        el.BadgeTexto.Text = "";
+                        el.Badge.MinWidth = 10;
+                        el.Badge.MinHeight = 10;
+                        el.Badge.Width = 10;
+                        el.Badge.Height = 10;
+                        el.Badge.CornerRadius = new CornerRadius(5);
+                        el.Badge.Padding = new Thickness(0);
+                    }
+                    else
+                    {
+                        el.BadgeTexto.Text = notif;
+                        el.Badge.Width = double.NaN;
+                        el.Badge.Height = double.NaN;
+                        el.Badge.MinWidth = 16;
+                        el.Badge.MinHeight = 16;
+                        el.Badge.CornerRadius = new CornerRadius(8);
+                        el.Badge.Padding = new Thickness(3, 0, 3, 0);
+                    }
+                    el.Badge.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    el.Badge.Visibility = Visibility.Hidden;
+                }
+            }
         }
 
         // a janela é deste app fixado? Pela identidade (Keep não é o Edge, mesmo rodando dentro dele) ou,
