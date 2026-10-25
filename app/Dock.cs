@@ -792,6 +792,8 @@ namespace MacSkin
         // ---------- ampliação ----------
         // o redesenho por quadro só roda enquanto algo se mexe; parada, a dock não gasta nada
         bool animando;
+        const int AtrasoVidro = 2;   // quadros de atraso do vidro em relação ao conteúdo (ajuste se ainda sobrar/faltar vidro)
+        readonly Queue<int[]> filaVidro = new Queue<int[]>();
         void Animar()
         {
             if (animando) return;
@@ -834,15 +836,25 @@ namespace MacSkin
             }
             else rotulo.Visibility = Visibility.Hidden;
 
-            // o vidro acompanha o fundo da dock (que alarga quando os ícones crescem), recuado
+            // o vidro acompanha o fundo da dock (que alarga quando os ícones crescem), recuado.
+            // SetWindowPos vale na hora, mas a janela da dock (em camadas) só aparece 1 a 3 quadros depois: sem atraso, o
+            // vidro abria para as laterais antes do conteúdo e a dock "tremia". A fila segura o vidro para chegar junto.
             if (hVidro != IntPtr.Zero && fundo.ActualWidth > 0 && dock.Visibility == Visibility.Visible)
             {
                 var p = fundo.PointToScreen(new Point(Recuo, Recuo));
                 int w = (int)((fundo.ActualWidth - 2 * Recuo) * f), h = (int)((fundo.ActualHeight - 2 * Recuo) * f);
-                string r = (int)p.X + "," + (int)p.Y + "," + w + "," + h;
-                if (r != rVidro) { rVidro = r; Win32.Mover(hVidro, (int)p.X, (int)p.Y, w, h); mexendo = true; }
+                filaVidro.Enqueue(new int[] { (int)p.X, (int)p.Y, w, h });
+                if (filaVidro.Count > AtrasoVidro)
+                {
+                    var q = filaVidro.Dequeue();
+                    string r = q[0] + "," + q[1] + "," + q[2] + "," + q[3];
+                    if (r != rVidro) { rVidro = r; Win32.Mover(hVidro, q[0], q[1], q[2], q[3]); }
+                }
+                foreach (var q in filaVidro)
+                    if (q[0] + "," + q[1] + "," + q[2] + "," + q[3] != rVidro) { mexendo = true; break; }
             }
-            if (!mexendo && sobre == null) { animando = false; CompositionTarget.Rendering -= AoDesenhar; }
+            else filaVidro.Clear();
+            if (!mexendo && sobre == null) { animando = false; filaVidro.Clear(); CompositionTarget.Rendering -= AoDesenhar; }
         }
     }
 }
