@@ -39,6 +39,14 @@ namespace MacSkin
         ImageSource icone, grande;
         public ImageSource Icone { get { return icone; } set { icone = value; Avisar("Icone"); } }
         public ImageSource Grande { get { return grande; } set { grande = value; Avisar("Grande"); } }
+        // cascata na lista: pasta aberta mostra o conteúdo logo abaixo, recuado pelo Nivel
+        public int Nivel { get; set; }
+        public bool Expansivel { get; set; }
+        bool aberta;
+        public bool Aberta { get { return aberta; } set { aberta = value; Avisar("Aberta"); Avisar("SetaTexto"); } }
+        public string SetaTexto { get { return aberta ? "" : ""; } }   // chevron para baixo / para a direita
+        public Visibility SetaVis { get { return Expansivel && EhPasta ? Visibility.Visible : Visibility.Hidden; } }
+        public Thickness Recuo { get { return new Thickness(Nivel * 18, 0, 0, 0); } }
         public event PropertyChangedEventHandler PropertyChanged;
         void Avisar(string p) { var h = PropertyChanged; if (h != null) h(this, new PropertyChangedEventArgs(p)); }
 
@@ -147,7 +155,9 @@ namespace MacSkin
                 // Espaço: a lista usaria para selecionar, por isso vem antes (Preview)
                 c.PreviewKeyDown += (s, e) =>
                 {
-                    if (e.Key != Key.Space || Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
+                    if (Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
+                    if ((e.Key == Key.Right || e.Key == Key.Left) && TeclaCascata(e.Key)) { e.Handled = true; return; }
+                    if (e.Key != Key.Space) return;
                     AlternarPrevia(); e.Handled = true;
                 };
                 c.SelectionChanged += delegate
@@ -400,6 +410,7 @@ namespace MacSkin
             voltar.IsEnabled = pos > 0; avancar.IsEnabled = pos < historico.Count - 1;
             titulo.Text = destino == Recentes ? "Recentes" : NomePasta(destino);
             w.Title = titulo.Text + " — Finder";
+            abertos.Clear();   // as pastas abertas em cascata valem só para a pasta atual
             emBusca = false;   // o Carregar abaixo já repõe a lista
             if (buscaCancel != null) buscaCancel.Cancel();
             if (busca.Text.Length > 0) busca.Text = "";
@@ -586,7 +597,12 @@ namespace MacSkin
             {
                 if (g != geracao) return;   // o usuário já foi para outra pasta
                 itens.Clear();
-                foreach (var e in Ordem(t.Result)) itens.Add(e);
+                foreach (var e in Ordem(t.Result))
+                {
+                    e.Expansivel = e.EhPasta && destino != Recentes;
+                    itens.Add(e);
+                    if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, false);   // refresh mantém as pastas abertas
+                }
                 PedirIcones();
                 if (antes != null) foreach (var e in itens.Where(x => antes.Contains(x.Caminho))) lista.SelectedItems.Add(e);
                 AtualizarStatusSelecao();
@@ -653,10 +669,86 @@ namespace MacSkin
 
         void Ordenar()
         {
+            var sel = new HashSet<string>(Selecionados().Select(x => x.Caminho));
+            var topo = itens.Where(x => x.Nivel == 0).ToList();   // o conteúdo das pastas abertas é relido e reordenado
+            foreach (var e in topo) e.Aberta = false;
+            itens.Clear();
+            foreach (var e in Ordem(topo))
+            {
+                itens.Add(e);
+                if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, true);
+            }
+            foreach (var e in itens.Where(x => sel.Contains(x.Caminho))) lista.SelectedItems.Add(e);
+        }
+
+        // ---------- cascata (setinha / teclas → ←) ----------
+        // pastas abertas na pasta atual; vale até navegar para outra
+        readonly HashSet<string> abertos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // mostra o conteúdo da pasta logo abaixo dela, sem entrar nela
+        void Expandir(Entrada e, bool pedirIcones)
+        {
+            if (!e.EhPasta || !e.Expansivel || e.Aberta) return;
+            var filhos = Ordem(Ler(e.Caminho)).ToList();
+            foreach (var f in filhos) { f.Nivel = e.Nivel + 1; f.Expansivel = true; }
+            e.Aberta = true; abertos.Add(e.Caminho);
+            int i = itens.IndexOf(e) + 1;
+            foreach (var f in filhos) itens.Insert(i++, f);
+            if (pedirIcones) PedirIcones(filhos);
+            foreach (var f in filhos) if (abertos.Contains(f.Caminho)) Expandir(f, pedirIcones);
+            AtualizarStatusSelecao();
+        }
+
+        void Recolher(Entrada e)
+        {
+            if (!e.Aberta) return;
+            int i = itens.IndexOf(e) + 1;
+            while (i < itens.Count && itens[i].Nivel > e.Nivel) itens.RemoveAt(i);
+            e.Aberta = false; abertos.Remove(e.Caminho);
+            string prefixo = e.Caminho.TrimEnd('\\') + "\\";
+            abertos.RemoveWhere(p => p.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase));
+            if (lista.SelectedItems.Count == 0) lista.SelectedItem = e;   // a seleção estava dentro do que fechou
+            AtualizarStatusSelecao();
+        }
+
+        void AlternarPasta(Entrada e) { if (e.Aberta) Recolher(e); else Expandir(e, true); }
+
+        void SelecionarEFocar(Entrada e)
+        {
+            lista.SelectedItems.Clear(); lista.SelectedItem = e;
+            lista.ScrollIntoView(e); lista.UpdateLayout();
+            var ct = lista.ItemContainerGenerator.ContainerFromItem(e) as ListBoxItem;
+            if (ct != null) ct.Focus();
+        }
+
+        // → abre a pasta (se já aberta, desce para o primeiro item dela); ← fecha (se já fechada, sobe para a pasta de cima)
+        bool TeclaCascata(Key k)
+        {
+            if (modo != "lista") return false;
             var sel = Selecionados().ToList();
-            var l = Ordem(itens.ToList()).ToList();
-            itens.Clear(); foreach (var e in l) itens.Add(e);
-            foreach (var e in sel) lista.SelectedItems.Add(e);
+            if (sel.Count == 0) return false;
+            if (sel.Count > 1)
+            {
+                foreach (var e in sel) { if (k == Key.Right) Expandir(e, true); else Recolher(e); }
+                return true;
+            }
+            var en = sel[0];
+            int i = itens.IndexOf(en);
+            if (k == Key.Right)
+            {
+                if (!en.EhPasta || !en.Expansivel) return true;
+                if (!en.Aberta) Expandir(en, true);
+                else if (i + 1 < itens.Count && itens[i + 1].Nivel > en.Nivel) SelecionarEFocar(itens[i + 1]);
+            }
+            else
+            {
+                if (en.Aberta) Recolher(en);
+                else if (en.Nivel > 0)
+                {
+                    for (int j = i - 1; j >= 0; j--) if (itens[j].Nivel < en.Nivel) { SelecionarEFocar(itens[j]); break; }
+                }
+            }
+            return true;
         }
 
         // ícones de pasta no estilo Mac (WhiteSur, instalados em icones\); o resto vem do Windows
@@ -679,11 +771,12 @@ namespace MacSkin
             return i;
         }
 
-        void PedirIcones()
+        void PedirIcones() { PedirIcones(itens.ToList()); }
+        void PedirIcones(IEnumerable<Entrada> quais)
         {
             int g = geracao;
             int px = modo == "galeria" ? 160 : modo == "icones" ? 96 : 32;
-            foreach (var e in itens)
+            foreach (var e in quais)
             {
                 var en = e;
                 if (en.EhPasta)
@@ -1115,6 +1208,12 @@ namespace MacSkin
             arrastoInicio = e.GetPosition(w); podeArrastar = false; pendente = null;
             if (DentroDe<ScrollBar>(e) || DentroDe<GridViewColumnHeader>(e)) return;
             var en = Sob(e);
+            // clicar na setinha só abre/fecha a pasta em cascata, sem selecionar nem entrar
+            var alvo = e.OriginalSource as FrameworkElement;
+            if (c == lista && en != null && en.EhPasta && en.Expansivel && alvo != null && (alvo.Tag as string) == "seta")
+            {
+                AlternarPasta(en); e.Handled = true; return;
+            }
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
             bool foraDoNome = c == lista && e.GetPosition(lista).X > ((GridView)lista.View).Columns[0].ActualWidth + 6;
             if (en != null && (!foraDoNome || shift || e.ClickCount > 1))
@@ -1423,7 +1522,9 @@ namespace MacSkin
                 ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListView.View><GridView>
           <GridViewColumn Header='Nome' Width='440'><GridViewColumn.CellTemplate><DataTemplate>
-            <StackPanel Orientation='Horizontal'><Image Source='{Binding Icone}' Width='18' Height='18' Margin='0,0,8,0' RenderOptions.BitmapScalingMode='HighQuality'/>
+            <StackPanel Orientation='Horizontal' Margin='{Binding Recuo}'>
+              <TextBlock Tag='seta' Text='{Binding SetaTexto}' Visibility='{Binding SetaVis}' FontFamily='Segoe Fluent Icons, Segoe MDL2 Assets' FontSize='10' Width='16' TextAlignment='Center' VerticalAlignment='Center' Opacity='0.6' Background='Transparent'/>
+              <Image Source='{Binding Icone}' Width='18' Height='18' Margin='0,0,8,0' RenderOptions.BitmapScalingMode='HighQuality'/>
               <TextBlock Text='{Binding Nome}' VerticalAlignment='Center' TextTrimming='CharacterEllipsis'/></StackPanel></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
           <GridViewColumn Header='Tamanho' Width='100'><GridViewColumn.CellTemplate><DataTemplate>
             <TextBlock Text='{Binding TamanhoTexto}' Opacity='0.75'/></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
