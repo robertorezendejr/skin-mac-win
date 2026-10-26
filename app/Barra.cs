@@ -60,7 +60,7 @@ namespace MacSkin
             // ---------- esquerda: logo (menu do sistema) e app ativo ----------
             var logo = new Path
             {
-                Width = 13, Height = 13, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center, Fill = Branco,
+                Width = 16, Height = 16, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center, Fill = Branco,
                 Data = Geometry.Parse("M0,0 H6 V6 H0 Z M7,0 H13 V6 H7 Z M0,7 H6 V13 H0 Z M7,7 H13 V13 H7 Z")
             };
             menuSis = new ContextMenu();
