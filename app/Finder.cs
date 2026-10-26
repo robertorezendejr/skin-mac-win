@@ -247,6 +247,32 @@ namespace MacSkin
 
         public void Mostrar() { w.Show(); w.Activate(); lista.Focus(); }
 
+        // diagnóstico (MacSkin.exe --medir-finder pasta saida.txt): grava o tamanho real, em pixels, do ícone de cada linha e fecha
+        public void Medir(string saida)
+        {
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            t.Tick += delegate
+            {
+                t.Stop();
+                var l = new List<string>();
+                Action<DependencyObject> ande = null;
+                ande = o =>
+                {
+                    for (int i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++)
+                    {
+                        var f = VisualTreeHelper.GetChild(o, i);
+                        var img = f as Image; var en = img != null ? img.DataContext as Entrada : null;
+                        if (en != null) l.Add((en.EhPasta ? "pasta   " : "arquivo ") + img.ActualWidth + "x" + img.ActualHeight + "  " + en.Nome);
+                        ande(f);
+                    }
+                };
+                ande(lista);
+                File.WriteAllLines(saida, l);
+                w.Close();
+            };
+            t.Start();
+        }
+
         // ---------- aparência ----------
         bool claro;
         void Tema()
@@ -771,6 +797,27 @@ namespace MacSkin
             return i;
         }
 
+        // pasta do Mac desenhada em vetor: fundo com a aba, folha de papel saindo por cima e frente em degradê
+        static ImageSource pastaMac;
+        static ImageSource PastaMac()
+        {
+            if (pastaMac == null)
+            {
+                string x = "<DrawingImage xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><DrawingImage.Drawing><DrawingGroup>"
+                    + "<GeometryDrawing Brush='Transparent' Geometry='M0,0 H100 V100 H0 Z'/>"
+                    + "<GeometryDrawing Geometry='M5,22 Q5,12 15,12 H37 Q42,12 45,16 L49,21 H88 Q96,21 96,29 V80 Q96,90 86,90 H15 Q5,90 5,80 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#3C9BD6' Offset='0'/><GradientStop Color='#2F86C4' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
+                    + "<GeometryDrawing Brush='#33000000' Geometry='M12,30 H89 V50 H12 Z'/>"
+                    + "<GeometryDrawing Geometry='M13,22 Q13,19 16,19 H85 Q88,19 88,22 V60 H13 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#FFFFFF' Offset='0'/><GradientStop Color='#E4E8EC' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
+                    + "<GeometryDrawing Geometry='M4,40 Q4,32 12,32 H89 Q97,32 97,40 V80 Q97,90 87,90 H14 Q4,90 4,80 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#84D4F8' Offset='0'/><GradientStop Color='#4DB4EA' Offset='0.45'/><GradientStop Color='#35A0DC' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
+                    + "<GeometryDrawing Geometry='M5,40 Q5,33 12,33 H89 Q96,33 96,40'><GeometryDrawing.Pen><Pen Brush='#66FFFFFF' Thickness='1.2'/></GeometryDrawing.Pen></GeometryDrawing>"
+                    + "</DrawingGroup></DrawingImage.Drawing></DrawingImage>";
+                var d = (DrawingImage)System.Windows.Markup.XamlReader.Parse(x);
+                d.Freeze();
+                pastaMac = d;
+            }
+            return pastaMac;
+        }
+
         void PedirIcones() { PedirIcones(itens.ToList()); }
         void PedirIcones(IEnumerable<Entrada> quais)
         {
@@ -781,7 +828,7 @@ namespace MacSkin
                 var en = e;
                 if (en.EhPasta)
                 {
-                    string esp; var mac = IconeMac(pastasEspeciais.TryGetValue(en.Caminho, out esp) ? esp : "GenericFolderIcon");
+                    string esp; var mac = pastasEspeciais.TryGetValue(en.Caminho, out esp) ? IconeMac(esp) : PastaMac();
                     if (mac != null) { en.Icone = mac; en.Grande = mac; continue; }
                 }
                 Shell.PedirImagem(en.Caminho, px, img => { if (g != geracao) return; if (px <= 32) en.Icone = img; else { en.Grande = img; if (en.Icone == null) en.Icone = img; } });
@@ -1400,7 +1447,7 @@ namespace MacSkin
     </Style>
     <Style x:Key='Linha' TargetType='ListViewItem'>
       <Setter Property='Foreground' Value='{DynamicResource Texto}'/>
-      <Setter Property='Height' Value='28'/>
+      <Setter Property='Height' Value='36'/>
       <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewItem'>
         <Border x:Name='b' Background='Transparent' CornerRadius='5' Margin='8,0'><GridViewRowPresenter VerticalAlignment='Center'/></Border>
         <ControlTemplate.Triggers>
@@ -1517,14 +1564,14 @@ namespace MacSkin
       </DockPanel>
 
       <!-- lista -->
-      <ListView x:Name='lista' Grid.Row='2' BorderThickness='0' Background='Transparent' AlternationCount='2' SelectionMode='Extended'
+      <ListView x:Name='lista' Grid.Row='2' FontSize='15' BorderThickness='0' Background='Transparent' AlternationCount='2' SelectionMode='Extended'
                 ItemContainerStyle='{StaticResource Linha}' VirtualizingPanel.IsVirtualizing='True' VirtualizingPanel.VirtualizationMode='Recycling'
                 ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListView.View><GridView>
           <GridViewColumn Header='Nome' Width='440'><GridViewColumn.CellTemplate><DataTemplate>
             <StackPanel Orientation='Horizontal' Margin='{Binding Recuo}'>
               <TextBlock Tag='seta' Text='{Binding SetaTexto}' Visibility='{Binding SetaVis}' FontFamily='Segoe Fluent Icons, Segoe MDL2 Assets' FontSize='10' Width='16' TextAlignment='Center' VerticalAlignment='Center' Opacity='0.6' Background='Transparent'/>
-              <Image Source='{Binding Icone}' Width='18' Height='18' Margin='0,0,8,0' RenderOptions.BitmapScalingMode='HighQuality'/>
+              <Grid Width='28' Height='28' Margin='0,0,10,0'><Image Source='{Binding Icone}' RenderOptions.BitmapScalingMode='HighQuality'><Image.Style><Style TargetType='Image'><Setter Property='Width' Value='18'/><Setter Property='Height' Value='18'/><Style.Triggers><DataTrigger Binding='{Binding EhPasta}' Value='True'><Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/></DataTrigger></Style.Triggers></Style></Image.Style></Image></Grid>
               <TextBlock Text='{Binding Nome}' VerticalAlignment='Center' TextTrimming='CharacterEllipsis'/></StackPanel></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
           <GridViewColumn Header='Tamanho' Width='100'><GridViewColumn.CellTemplate><DataTemplate>
             <TextBlock Text='{Binding TamanhoTexto}' Opacity='0.75'/></DataTemplate></GridViewColumn.CellTemplate></GridViewColumn>
