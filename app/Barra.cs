@@ -85,19 +85,21 @@ namespace MacSkin
 
             // ---------- direita (na ordem do Mac) ----------
             // volume do Mac: alto-falante cheio e dois arcos grossos de pontas redondas
-            var volDesenho = new Canvas { Width = 15, Height = 13, VerticalAlignment = VerticalAlignment.Center };
+            // arcos centrados em (8;6,5), raios 3,6 e 7,2: o mesmo espaço entre eles
+            var volDesenho = new Canvas { Width = 17, Height = 13, VerticalAlignment = VerticalAlignment.Center };
             volDesenho.Children.Add(PecaWifi("M1.5,4.8 H4.2 L8,1.6 V11.4 L4.2,8.2 H1.5 Z", true));
-            volDesenho.Children.Add(PecaWifi("M10.4,4.1 A3.4,3.4 0 0 1 10.4,8.9", false));
-            volDesenho.Children.Add(PecaWifi("M12.24,2.26 A6,6 0 0 1 12.24,10.74", false));
+            volDesenho.Children.Add(PecaWifi("M10.55,3.95 A3.6,3.6 0 0 1 10.55,9.05", false));
+            volDesenho.Children.Add(PecaWifi("M13.09,1.41 A7.2,7.2 0 0 1 13.09,11.59", false));
             Item(dir, volDesenho, s => Win32.Win(0x41));    // volume
             wifi = Glifo(0xE701, 15);   // só para cabo / sem rede; o Wi-Fi é desenhado abaixo
             // Wi-Fi do Mac: cunha embaixo e dois arcos grossos de pontas redondas; o que passa do sinal fica apagado
-            wifiDesenho = new Canvas { Width = 18, Height = 13, VerticalAlignment = VerticalAlignment.Center };
+            // centro na ponta da cunha (10;13,4); raios 4, 8 e 12: o mesmo espaço entre eles
+            wifiDesenho = new Canvas { Width = 20, Height = 14, VerticalAlignment = VerticalAlignment.Center };
             wifiPecas = new[]
             {
-                PecaWifi("M9,12.2 L6.45,9.65 A3.6,3.6 0 0 1 11.55,9.65 Z", true),
-                PecaWifi("M4.62,7.82 A6.2,6.2 0 0 1 13.38,7.82", false),
-                PecaWifi("M1.65,4.85 A10.4,10.4 0 0 1 16.35,4.85", false)
+                PecaWifi("M10,13.4 L7.17,10.57 A4,4 0 0 1 12.83,10.57 Z", true),
+                PecaWifi("M4.34,7.74 A8,8 0 0 1 15.66,7.74", false),
+                PecaWifi("M1.52,4.92 A12,12 0 0 1 18.48,4.92", false)
             };
             foreach (var p in wifiPecas) wifiDesenho.Children.Add(p);
             var wifiBox = new Grid(); wifiBox.Children.Add(wifiDesenho); wifiBox.Children.Add(wifi);
@@ -114,10 +116,19 @@ namespace MacSkin
             bat.Children.Add(batRaio); bat.Children.Add(corpo);
             bat.Children.Add(new Border { Width = 1.5, Height = 4, Margin = new Thickness(1, 0, 0, 0), CornerRadius = new CornerRadius(1), Background = Comum.Cor("#80FFFFFF"), VerticalAlignment = VerticalAlignment.Center });
             itemBat = Item(dir, bat, s => Abrir("ms-settings:batterysaver"));
-            Item(dir, Glifo(0xE702, 14), s => Abrir("ms-settings:bluetooth"));
+            // Bluetooth em traço grosso de pontas redondas, no mesmo peso dos arcos do volume e do Wi-Fi
+            var bt = Desenho("M0.5,3.8 L7.5,10.2 L4,13.2 V0.8 L7.5,3.8 L0.5,10.2", 9, 15, false);
+            bt.StrokeThickness = 2.2; bt.StrokeStartLineCap = PenLineCap.Round; bt.StrokeEndLineCap = PenLineCap.Round; bt.StrokeLineJoin = PenLineJoin.Round;
+            Item(dir, bt, s => Abrir("ms-settings:bluetooth"));
             // Central de Controle: dois interruptores; abre a caixa dos apps em segundo plano (a bandeja do Windows)
             var painel = new PainelBandeja();
-            central = Item(dir, Desenho("M3,0.75 H11 A2.25,2.25 0 0 1 11,5.25 H3 A2.25,2.25 0 0 1 3,0.75 Z M3,7.75 H11 A2.25,2.25 0 0 1 11,12.25 H3 A2.25,2.25 0 0 1 3,7.75 Z M3,1.5 A1.5,1.5 0 1 0 3.01,1.5 Z M11,8.5 A1.5,1.5 0 1 0 11.01,8.5 Z", 15, 13, false),
+            // como no Mac: o de cima é contorno com a bolinha branca; o de baixo é pílula branca cheia com a bolinha escura
+            var cc = new Canvas { Width = 14, Height = 13, VerticalAlignment = VerticalAlignment.Center };
+            cc.Children.Add(new Path { Data = Geometry.Parse("M3,0.75 H11 A2.25,2.25 0 0 1 11,5.25 H3 A2.25,2.25 0 0 1 3,0.75 Z"), Stroke = Branco, StrokeThickness = 1.5 });
+            cc.Children.Add(new Path { Data = Geometry.Parse("M1.5,3 A1.5,1.5 0 1 0 4.5,3 A1.5,1.5 0 1 0 1.5,3 Z"), Fill = Branco });
+            cc.Children.Add(new Path { Data = Geometry.Parse("M3,7.75 H11 A2.25,2.25 0 0 1 11,12.25 H3 A2.25,2.25 0 0 1 3,7.75 Z"), Fill = Branco });
+            cc.Children.Add(new Path { Data = Geometry.Parse("M9.5,10 A1.5,1.5 0 1 0 12.5,10 A1.5,1.5 0 1 0 9.5,10 Z"), Fill = Comum.Cor("#E6000000") });
+            central = Item(dir, cc,
                 s => { var b = (FrameworkElement)s; painel.Alternar(new Point(Janela.Left + b.TranslatePoint(new Point(b.ActualWidth, 0), Janela).X, Altura)); });
             Bandeja.Ancora = () =>
             {
