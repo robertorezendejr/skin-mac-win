@@ -64,6 +64,9 @@ namespace MacSkin
     {
         public static readonly System.Globalization.CultureInfo PtBr = new System.Globalization.CultureInfo("pt-BR");
         const string Recentes = "::recentes";
+        const string Lixo = "::lixeira";   // a Lixeira do Windows, lida direto de X:\$Recycle.Bin\<SID>
+        static bool Virtual(string p) { return p == Recentes || p == Lixo; }
+        static string NomeLocal(string p) { return p == Recentes ? "Recentes" : p == Lixo ? "Lixeira" : NomePasta(p); }
 
         Window w;
         ListView lista; ListBox icones;
@@ -238,10 +241,18 @@ namespace MacSkin
                 src.AddHook(Borda);
                 Vidro();
             };
-            w.Closed += delegate { if (vigia != null) vigia.Dispose(); };
+            Action remontar = () => { MontarLateral(); MarcarLateral(); };
+            FavoritosMudaram += remontar;
+            w.Closed += delegate { if (vigia != null) vigia.Dispose(); FavoritosMudaram -= remontar; };
+
+            // soltar pastas no vazio da barra lateral as adiciona ao fim dos Favoritos
+            var rolagem = (ScrollViewer)lateral.Parent;
+            rolagem.Background = Brushes.Transparent; rolagem.AllowDrop = true;
+            rolagem.DragOver += (s, e) => { e.Effects = PastasArrastadas(e).Count > 0 ? DragDropEffects.Link : DragDropEffects.None; e.Handled = true; };
+            rolagem.Drop += (s, e) => { AdicionarFavoritos(PastasArrastadas(e), -1); e.Handled = true; };
 
             MontarLateral();
-            Navegar(string.IsNullOrEmpty(inicial) || !Directory.Exists(inicial) ? Pasta(Environment.SpecialFolder.UserProfile, "Downloads") : inicial, true);
+            Navegar(string.IsNullOrEmpty(inicial) || (!Directory.Exists(inicial) && inicial != Lixo) ?Pasta(Environment.SpecialFolder.UserProfile, "Downloads") : inicial, true);
             AtualizarStatusSelecao();
         }
 
@@ -335,6 +346,21 @@ namespace MacSkin
             Atalho("", "Imagens", Pasta(Environment.SpecialFolder.MyPictures));
             Atalho("", "Músicas", Pasta(Environment.SpecialFolder.MyMusic));
             Atalho("", "Vídeos", Pasta(Environment.SpecialFolder.MyVideos));
+            var ultimoFixo = (Border)lateral.Children[lateral.Children.Count - 1];
+            var favs = Favoritos();
+            InsercaoFavorito(ultimoFixo, -2);
+            for (int i = 0; i < favs.Count; i++)
+            {
+                if (!Directory.Exists(favs[i])) continue;
+                string pasta = favs[i], nomeFav = System.IO.Path.GetFileName(pasta.TrimEnd('\\'));
+                var b = Atalho("", nomeFav.Length > 0 ? nomeFav : pasta, pasta);
+                b.ToolTip = pasta;
+                b.ContextMenu = new ContextMenu();
+                var tirar = new MenuItem { Header = "Remover da Barra Lateral" };
+                tirar.Click += delegate { RemoverFavorito(pasta); };
+                b.ContextMenu.Items.Add(tirar);
+                InsercaoFavorito(b, i);
+            }
             Secao("Localizações");
             foreach (var var in new[] { "OneDriveCommercial", "OneDriveConsumer", "OneDrive" })
             {
@@ -348,6 +374,88 @@ namespace MacSkin
                 string nome = string.IsNullOrEmpty(d.VolumeLabel) ? (d.DriveType == DriveType.Network ? "Rede" : "Disco Local") : d.VolumeLabel;
                 Atalho(d.DriveType == DriveType.Network ? "" : d.DriveType == DriveType.Removable ? "" : "", nome + " (" + d.Name.TrimEnd('\\') + ")", d.Name);
             }
+            Atalho("", "Lixeira", Lixo);   // soltar aqui manda para a Lixeira
+        }
+
+        // ---------- pastas adicionadas aos Favoritos (arrastar para a barra lateral), uma por linha em finder-favoritos.txt ----------
+        static readonly string arqFavoritos = System.IO.Path.Combine(Comum.Dir, "finder-favoritos.txt");
+        static event Action FavoritosMudaram;
+
+        static List<string> Favoritos()
+        {
+            try { if (File.Exists(arqFavoritos)) return File.ReadAllLines(arqFavoritos).Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("#")).ToList(); }
+            catch (Exception e) { Log("favoritos: " + e.Message); }
+            return new List<string>();
+        }
+
+        static void SalvarFavoritos(List<string> favs)
+        {
+            try { File.WriteAllLines(arqFavoritos, favs); } catch (Exception e) { Log("salvar favoritos: " + e.Message); }
+            if (FavoritosMudaram != null) FavoritosMudaram();
+        }
+
+        // indice < 0 põe no fim; uma pasta que já está nos Favoritos muda de lugar
+        static void AdicionarFavoritos(List<string> pastas, int indice)
+        {
+            if (pastas.Count == 0) return;
+            var favs = Favoritos();
+            if (indice < 0 || indice > favs.Count) indice = favs.Count;
+            foreach (var p in pastas)
+            {
+                int ja = favs.FindIndex(f => string.Equals(f.TrimEnd('\\'), p.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+                if (ja >= 0) { favs.RemoveAt(ja); if (indice > ja) indice--; }
+            }
+            favs.InsertRange(indice, pastas);
+            SalvarFavoritos(favs);
+        }
+
+        static void RemoverFavorito(string pasta)
+        {
+            var favs = Favoritos();
+            favs.RemoveAll(f => string.Equals(f, pasta, StringComparison.OrdinalIgnoreCase));
+            SalvarFavoritos(favs);
+        }
+
+        static List<string> PastasArrastadas(DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return new List<string>();
+            return ((string[])e.Data.GetData(DataFormats.FileDrop)).Where(Directory.Exists).ToList();
+        }
+
+        // como no Finder do Mac: soltar uma pasta na borda de cima/baixo de um favorito insere um atalho ali (linha azul);
+        // no meio continua copiando/movendo para dentro. indice = -2 é o último favorito fixo: só aceita inserir embaixo dele.
+        void InsercaoFavorito(Border b, int indice)
+        {
+            Func<DragEventArgs, int> posicao = e =>
+            {
+                if (PastasArrastadas(e).Count == 0) return -1;
+                double y = e.GetPosition(b).Y, h = b.ActualHeight;
+                if (indice == -2) return y > h * 0.7 ? 0 : -1;
+                if (y < h * 0.3) return indice;
+                if (y > h * 0.7) return indice + 1;
+                return -1;
+            };
+            Action<DragEventArgs> linha = e =>
+            {
+                int i = e == null ? -1 : posicao(e);
+                b.BorderBrush = (Brush)w.Resources["Azul"];
+                b.BorderThickness = i < 0 ? new Thickness(0) : i == indice ? new Thickness(0, 2, 0, 0) : new Thickness(0, 0, 0, 2);
+                b.Padding = new Thickness(8, 5 - b.BorderThickness.Top, 8, 5 - b.BorderThickness.Bottom);   // a linha não empurra os itens
+            };
+            b.PreviewDragOver += (s, e) =>
+            {
+                linha(e);
+                if (posicao(e) >= 0) { e.Effects = DragDropEffects.Link; e.Handled = true; }
+            };
+            b.DragLeave += delegate { linha(null); };
+            b.PreviewDrop += (s, e) =>
+            {
+                int i = posicao(e);
+                linha(null);
+                if (i < 0) return;
+                AdicionarFavoritos(PastasArrastadas(e), i);
+                e.Handled = true;
+            };
         }
 
         void Secao(string nome)
@@ -412,6 +520,7 @@ namespace MacSkin
             // soltar arquivos num atalho da lateral copia/move para lá
             b.AllowDrop = destino != Recentes && !destino.StartsWith("shell:");
             b.Drop += (s, e) => { ReceberArquivos(e, destino); e.Handled = true; };
+            b.DragOver += (s, e) => { e.Effects = Efeito(e, destino); e.Handled = true; };
             lateral.Children.Add(b);
             return b;
         }
@@ -426,7 +535,7 @@ namespace MacSkin
         void Navegar(string destino, bool novo)
         {
             if (destino == null) return;
-            if (destino != Recentes && !Directory.Exists(destino)) { MessageBox.Show(w, "A pasta não existe mais:\n" + destino, "Finder"); return; }
+            if (!Virtual(destino) && !Directory.Exists(destino)) { MessageBox.Show(w, "A pasta não existe mais:\n" + destino, "Finder"); return; }
             if (novo)
             {
                 if (pos < historico.Count - 1) historico.RemoveRange(pos + 1, historico.Count - pos - 1);
@@ -434,8 +543,11 @@ namespace MacSkin
             }
             atual = destino;
             voltar.IsEnabled = pos > 0; avancar.IsEnabled = pos < historico.Count - 1;
-            titulo.Text = destino == Recentes ? "Recentes" : NomePasta(destino);
+            titulo.Text = NomeLocal(destino);
             w.Title = titulo.Text + " — Finder";
+            var gv = lista.View as GridView;   // na Lixeira a data é a de quando o item foi apagado
+            var colData = gv == null ? null : gv.Columns.FirstOrDefault(c => (c.Header as string) == "Data de Modificação" || (c.Header as string) == "Apagado em");
+            if (colData != null) colData.Header = destino == Lixo ? "Apagado em" : "Data de Modificação";
             abertos.Clear();   // as pastas abertas em cascata valem só para a pasta atual
             emBusca = false;   // o Carregar abaixo já repõe a lista
             if (buscaCancel != null) buscaCancel.Cancel();
@@ -454,7 +566,7 @@ namespace MacSkin
 
         void Subir()
         {
-            if (atual == Recentes) return;
+            if (Virtual(atual)) return;
             var pai = Directory.GetParent(atual.TrimEnd('\\'));
             if (pai != null) Navegar(pai.FullName, true);
         }
@@ -463,7 +575,7 @@ namespace MacSkin
         void MontarCaminho()
         {
             caminhoBarra.Children.Clear();
-            if (atual == Recentes) { Pedaco("Recentes", null, true); return; }
+            if (Virtual(atual)) { Pedaco(NomeLocal(atual), null, true); return; }
             var partes = new List<string>();
             for (var d = new DirectoryInfo(atual); d != null; d = d.Parent) partes.Insert(0, d.FullName);
             for (int i = 0; i < partes.Count; i++) Pedaco(NomePasta(partes[i]), partes[i], i == partes.Count - 1);
@@ -550,7 +662,7 @@ namespace MacSkin
                 string p = a.Historico[a.Pos];
                 var nome = new TextBlock
                 {
-                    Text = p == Recentes ? "Recentes" : NomePasta(p), FontSize = 12, Margin = new Thickness(22, 0, 22, 0), TextTrimming = TextTrimming.CharacterEllipsis,
+                    Text = NomeLocal(p), FontSize = 12, Margin = new Thickness(22, 0, 22, 0), TextTrimming = TextTrimming.CharacterEllipsis,
                     HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                     Foreground = (Brush)w.Resources[eh ? "Texto" : "TextoSec"], FontWeight = eh ? FontWeights.SemiBold : FontWeights.Normal
                 };
@@ -564,7 +676,7 @@ namespace MacSkin
                 var g = new Grid(); g.Children.Add(nome); g.Children.Add(x);
                 var b = new Border
                 {
-                    Child = g, Height = 26, Margin = new Thickness(2, 0, 2, 0), CornerRadius = new CornerRadius(6), ToolTip = p == Recentes ? null : p,
+                    Child = g, Height = 26, Margin = new Thickness(2, 0, 2, 0), CornerRadius = new CornerRadius(6), ToolTip = Virtual(p) ? null : p,
                     Background = eh ? (Brush)w.Resources["Fundo"] : Brushes.Transparent
                 };
                 b.MouseEnter += delegate { x.Visibility = Visibility.Visible; if (!eh) b.Background = (Brush)w.Resources["Hover"]; };
@@ -577,7 +689,7 @@ namespace MacSkin
 
         void EditarCaminho()
         {
-            endereco.Text = atual == Recentes ? "" : atual;
+            endereco.Text = Virtual(atual) ? "" : atual;
             caminhoBarra.Visibility = Visibility.Hidden; endereco.Visibility = Visibility.Visible;
             endereco.Focus();
             w.Dispatcher.BeginInvoke(new Action(endereco.SelectAll), DispatcherPriority.Input);   // depois do clique, senão ele desfaz a seleção
@@ -625,7 +737,7 @@ namespace MacSkin
                 itens.Clear();
                 foreach (var e in Ordem(t.Result))
                 {
-                    e.Expansivel = e.EhPasta && destino != Recentes;
+                    e.Expansivel = e.EhPasta && !Virtual(destino);
                     itens.Add(e);
                     if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, false);   // refresh mantém as pastas abertas
                 }
@@ -640,6 +752,7 @@ namespace MacSkin
             var r = new List<Entrada>();
             try
             {
+                if (destino == Lixo) return LerLixo();
                 if (destino == Recentes)
                 {
                     // atalhos que o Windows guarda dos arquivos abertos recentemente
@@ -858,7 +971,7 @@ namespace MacSkin
             {
                 emBusca = false;
                 if (buscaCancel != null) buscaCancel.Cancel();
-                titulo.Text = atual == Recentes ? "Recentes" : NomePasta(atual);
+                titulo.Text = NomeLocal(atual);
                 visao.Filter = null;
                 Carregar(atual, false);
                 return;
@@ -871,7 +984,7 @@ namespace MacSkin
         void BuscarTudo(string termo)
         {
             termo = termo.Trim();
-            if (termo.Length == 0 || atual == Recentes) return;
+            if (termo.Length == 0 || Virtual(atual)) return;
             if (buscaCancel != null) buscaCancel.Cancel();
             var cts = buscaCancel = new CancellationTokenSource();
             emBusca = true;
@@ -936,6 +1049,11 @@ namespace MacSkin
         void AbrirSelecionados()
         {
             var sel = Selecionados().ToList();
+            if (atual == Lixo)   // como no Mac: itens da Lixeira não abrem; Espaço mostra a prévia
+            {
+                if (sel.Count > 0) MessageBox.Show(w, "Para abrir “" + sel[0].Nome + "”, ponha o item de volta primeiro (botão direito → Pôr de Volta).", "Finder");
+                return;
+            }
             if (sel.Count == 1 && sel[0].EhPasta) { Navegar(sel[0].Caminho, true); return; }
             foreach (var e in sel)
             {
@@ -976,6 +1094,7 @@ namespace MacSkin
             else if (e.Key == Key.Escape && previa != null && previa.Aberta) previa.Fechar();
             else if (e.Key == Key.Back) voltar.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             else if (e.Key == Key.Delete) Lixeira(shift);
+            else if (atual == Lixo && (e.Key == Key.F2 || (ctrl && (e.Key == Key.C || e.Key == Key.X)))) { }   // na Lixeira os arquivos têm nomes $R…: só Pôr de Volta
             else if (e.Key == Key.F2) Renomear();
             else if (ctrl && e.Key == Key.C) Copiar(false);
             else if (ctrl && e.Key == Key.X) Copiar(true);
@@ -990,7 +1109,8 @@ namespace MacSkin
         {
             var sel = Selecionados().ToList();
             var hwnd = new WindowInteropHelper(w).Handle;
-            if (sel.Count > 0)
+            if (atual == Lixo) MenuLixo(sel);
+            else if (sel.Count > 0)
             {
                 var caminhos = sel.Select(x => x.Caminho).ToList();
                 ShellMenu.MostrarMenu(
@@ -1001,7 +1121,7 @@ namespace MacSkin
                     () => AlternarPrevia()
                 );
             }
-            else if (atual != Recentes && Directory.Exists(atual))
+            else if (!Virtual(atual) && Directory.Exists(atual))
             {
                 ShellMenu.MostrarMenuFundo(
                     hwnd,
@@ -1023,6 +1143,7 @@ namespace MacSkin
             op("Nova Janela do Finder", () => NovaJanela(atual));
             op("Abrir esta pasta no Explorador", MostrarNoExplorador);
             op("Atualizar", () => Navegar(atual, false));
+            if (atual == Lixo) op("Esvaziar Lixeira…", EsvaziarLixeira);
             m.IsOpen = true;
         }
 
@@ -1030,6 +1151,7 @@ namespace MacSkin
         {
             var sel = Selecionados().ToList();
             if (sel.Count > 0) Process.Start("explorer.exe", "/select,\"" + sel[0].Caminho + "\"");
+            else if (atual == Lixo) Process.Start("explorer.exe", "shell:RecycleBinFolder");
             else if (atual != Recentes) Process.Start("explorer.exe", "\"" + atual + "\"");
         }
 
@@ -1038,19 +1160,142 @@ namespace MacSkin
         {
             var sel = Selecionados().ToList();
             if (sel.Count == 0) return;
-            if (definitivo && MessageBox.Show(w, "Apagar " + sel.Count + " item(ns) definitivamente? Não vai para a Lixeira.", "Finder", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            if (atual == Lixo) { ApagarDoLixo(sel); return; }   // já está na Lixeira: Delete apaga de vez
+            MandarParaLixeira(sel.Select(e => e.Caminho).ToList(), definitivo);
+        }
+
+        void MandarParaLixeira(List<string> caminhos, bool definitivo)
+        {
+            if (caminhos.Count == 0) return;
+            if (definitivo && MessageBox.Show(w, "Apagar " + caminhos.Count + " item(ns) definitivamente? Não vai para a Lixeira.", "Finder", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             var opc = definitivo ? RecycleOption.DeletePermanently : RecycleOption.SendToRecycleBin;
-            foreach (var e in sel)
+            foreach (var c in caminhos)
             {
                 try
                 {
-                    if (e.EhPasta) FileSystem.DeleteDirectory(e.Caminho, UIOption.OnlyErrorDialogs, opc);
-                    else FileSystem.DeleteFile(e.Caminho, UIOption.OnlyErrorDialogs, opc);
+                    if (Directory.Exists(c)) FileSystem.DeleteDirectory(c, UIOption.OnlyErrorDialogs, opc);
+                    else FileSystem.DeleteFile(c, UIOption.OnlyErrorDialogs, opc);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex) { Log("lixo: " + ex.Message); }
             }
             Carregar(atual, false);
+        }
+
+        // ---------- Lixeira ----------
+        // cada disco guarda os itens apagados em X:\$Recycle.Bin\<SID>: o item em $Rxxxxxx.ext e, ao lado, o $Ixxxxxx.ext
+        // com o tamanho, a hora em que foi apagado e o caminho original
+        static readonly Dictionary<string, string> origemLixo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // $R → caminho original
+
+        static List<string> PastasLixo()
+        {
+            var r = new List<string>();
+            string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
+            foreach (var d in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!d.IsReady || (d.DriveType != DriveType.Fixed && d.DriveType != DriveType.Removable)) continue;
+                    string p = System.IO.Path.Combine(d.Name, "$Recycle.Bin", sid);
+                    if (Directory.Exists(p)) r.Add(p);
+                }
+                catch { }
+            }
+            return r;
+        }
+
+        static string InfoLixo(string real) { return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(real), "$I" + System.IO.Path.GetFileName(real).Substring(2)); }
+
+        static List<Entrada> LerLixo()
+        {
+            var r = new List<Entrada>();
+            foreach (var pasta in PastasLixo())
+            {
+                string[] infos;
+                try { infos = Directory.GetFiles(pasta, "$I*"); } catch { continue; }
+                foreach (var info in infos)
+                {
+                    try
+                    {
+                        string real = System.IO.Path.Combine(pasta, "$R" + System.IO.Path.GetFileName(info).Substring(2));
+                        bool dir = Directory.Exists(real);
+                        if (!dir && !File.Exists(real)) continue;
+                        byte[] b = File.ReadAllBytes(info);
+                        long versao = BitConverter.ToInt64(b, 0), tam = BitConverter.ToInt64(b, 8);
+                        var quando = DateTime.FromFileTime(BitConverter.ToInt64(b, 16));
+                        string origem = versao >= 2
+                            ? System.Text.Encoding.Unicode.GetString(b, 28, Math.Max(0, BitConverter.ToInt32(b, 24) - 1) * 2)   // tamanho conta o \0 final
+                            : System.Text.Encoding.Unicode.GetString(b, 24, Math.Min(520, b.Length - 24)).TrimEnd('\0');
+                        lock (origemLixo) origemLixo[real] = origem;
+                        r.Add(Nova(System.IO.Path.GetFileName(origem), real, dir, dir ? 0 : tam, quando));   // Data = quando foi apagado
+                    }
+                    catch (Exception ex) { Log("lixeira " + info + ": " + ex.Message); }
+                }
+            }
+            return r;
+        }
+
+        // Pôr de Volta, como no Mac: devolve o item à pasta de onde saiu (recriando-a se preciso; com outro nome se já houver um igual)
+        void PorDeVolta(List<Entrada> sel)
+        {
+            foreach (var e in sel)
+            {
+                string origem;
+                lock (origemLixo) origemLixo.TryGetValue(e.Caminho, out origem);
+                if (string.IsNullOrEmpty(origem)) continue;
+                try
+                {
+                    string pai = System.IO.Path.GetDirectoryName(origem);
+                    Directory.CreateDirectory(pai);
+                    string alvo = origem;
+                    if (File.Exists(alvo) || Directory.Exists(alvo))
+                        alvo = e.EhPasta ? NomeLivre(pai, System.IO.Path.GetFileName(origem), "") : NomeLivre(pai, System.IO.Path.GetFileNameWithoutExtension(origem), System.IO.Path.GetExtension(origem));
+                    if (e.EhPasta) Directory.Move(e.Caminho, alvo); else File.Move(e.Caminho, alvo);
+                    File.Delete(InfoLixo(e.Caminho));
+                    Win32.AvisarPasta(pai); Win32.AvisarPasta(System.IO.Path.GetDirectoryName(e.Caminho));
+                }
+                catch (Exception ex) { MessageBox.Show(w, "Não foi possível pôr de volta “" + e.Nome + "”:\n" + ex.Message, "Finder"); }
+            }
+            Carregar(atual, false);
+        }
+
+        void ApagarDoLixo(List<Entrada> sel)
+        {
+            if (sel.Count == 0) return;
+            string q = sel.Count == 1 ? "Apagar “" + sel[0].Nome + "” imediatamente?" : "Apagar " + sel.Count + " itens imediatamente?";
+            if (MessageBox.Show(w, q + "\nEsta ação não pode ser desfeita.", "Finder", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            foreach (var e in sel)
+            {
+                try
+                {
+                    if (e.EhPasta) Directory.Delete(e.Caminho, true); else File.Delete(e.Caminho);
+                    File.Delete(InfoLixo(e.Caminho));
+                    Win32.AvisarPasta(System.IO.Path.GetDirectoryName(e.Caminho));
+                }
+                catch (Exception ex) { MessageBox.Show(w, "Não foi possível apagar “" + e.Nome + "”:\n" + ex.Message, "Finder"); }
+            }
+            Carregar(atual, false);
+        }
+
+        void EsvaziarLixeira()
+        {
+            Win32.SHEmptyRecycleBin(new WindowInteropHelper(w).Handle, null, 0);   // pergunta e mostra o progresso do próprio Windows
+            Carregar(atual, false);
+        }
+
+        void MenuLixo(List<Entrada> sel)
+        {
+            var m = new ContextMenu();
+            Action<string, Action, bool> op = (nome, acao, ativo) => { var i = new MenuItem { Header = nome, IsEnabled = ativo }; i.Click += delegate { acao(); }; m.Items.Add(i); };
+            if (sel.Count > 0)
+            {
+                op("Pôr de Volta", () => PorDeVolta(sel), true);
+                op("Apagar Imediatamente…", () => ApagarDoLixo(sel), true);
+                m.Items.Add(new Separator());
+                op("Visualização Rápida", AlternarPrevia, true);
+            }
+            else op("Esvaziar Lixeira…", EsvaziarLixeira, itens.Count > 0);
+            m.IsOpen = true;
         }
 
         void Copiar(bool recortar)
@@ -1067,7 +1312,7 @@ namespace MacSkin
 
         void Colar()
         {
-            if (atual == Recentes || !Clipboard.ContainsFileDropList()) return;
+            if (Virtual(atual) || !Clipboard.ContainsFileDropList()) return;
             bool mover = false;
             var ms = Clipboard.GetData("Preferred DropEffect") as MemoryStream;
             if (ms != null) { var b = new byte[4]; ms.Read(b, 0, 4); mover = (BitConverter.ToInt32(b, 0) & 2) != 0; }
@@ -1110,7 +1355,7 @@ namespace MacSkin
 
         void NovaPasta()
         {
-            if (atual == Recentes) return;
+            if (Virtual(atual)) return;
             try
             {
                 string p = NomeLivre(atual, "pasta sem título", "");
@@ -1337,6 +1582,7 @@ namespace MacSkin
             var d = e.GetPosition(w) - arrastoInicio;
             if (Math.Abs(d.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(d.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             podeArrastar = false;
+            if (atual == Lixo) return;   // arrastar para fora levaria o nome $R…; use Pôr de Volta
             var sel = Selecionados().Select(x => x.Caminho).ToArray();
             if (sel.Length == 0) return;
             DragDrop.DoDragDrop((DependencyObject)s, new DataObject(DataFormats.FileDrop, sel), DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link);
@@ -1345,6 +1591,7 @@ namespace MacSkin
         // soltar sobre uma pasta da lista vai para ela; no vazio, para a pasta atual
         string DestinoSoltar(DragEventArgs e)
         {
+            if (atual == Lixo) return Lixo;   // soltar na janela da Lixeira manda para a Lixeira
             var d = e.OriginalSource as DependencyObject;
             while (d != null && !(d is ListBoxItem)) d = d is Visual ? VisualTreeHelper.GetParent(d) : null;
             var en = d == null ? null : ((ListBoxItem)d).DataContext as Entrada;
@@ -1355,6 +1602,7 @@ namespace MacSkin
         static DragDropEffects Efeito(DragEventArgs e, string destino)
         {
             if (!e.Data.GetDataPresent(DataFormats.FileDrop) || destino == Recentes) return DragDropEffects.None;
+            if (destino == Lixo) return DragDropEffects.Move;
             if ((e.KeyStates & DragDropKeyStates.ControlKey) != 0) return DragDropEffects.Copy;
             if ((e.KeyStates & DragDropKeyStates.ShiftKey) != 0) return DragDropEffects.Move;
             var o = ((string[])e.Data.GetData(DataFormats.FileDrop)).FirstOrDefault();
@@ -1368,6 +1616,7 @@ namespace MacSkin
             var ef = Efeito(e, destino);
             if (ef == DragDropEffects.None) return;
             var origens = ((string[])e.Data.GetData(DataFormats.FileDrop)).Where(o => !string.Equals(o.TrimEnd('\\'), destino.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)).ToList();
+            if (destino == Lixo) { MandarParaLixeira(origens, false); return; }
             Transferir(origens, destino, ef == DragDropEffects.Move);
         }
 
@@ -1378,7 +1627,7 @@ namespace MacSkin
             if (atual == Recentes) return;
             try
             {
-                vigia = new FileSystemWatcher(atual) { IncludeSubdirectories = false, NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite };
+                vigia = new FileSystemWatcher(atual == Lixo ? PastasLixo().First() : atual) { IncludeSubdirectories = false, NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size | NotifyFilters.LastWrite };
                 FileSystemEventHandler h = (s, e) => w.Dispatcher.BeginInvoke(new Action(() => { if (busca.Text.Length == 0) { recarregar.Stop(); recarregar.Start(); } }));
                 vigia.Created += h; vigia.Deleted += h; vigia.Changed += h;
                 vigia.Renamed += (s, e) => h(s, e);

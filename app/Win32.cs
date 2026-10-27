@@ -196,17 +196,23 @@ namespace MacSkin
             return SHQueryRecycleBin(null, ref i) == 0 && i.i64NumItems > 0;
         }
 
-        // janelas do Explorador abertas na Lixeira (pelo título, que é o nome da aba ativa)
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern int SHEmptyRecycleBin(IntPtr h, string raiz, uint flags);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern void SHChangeNotify(int evento, uint flags, string p1, IntPtr p2);
+        public static void AvisarPasta(string p) { SHChangeNotify(0x1000, 0x0005, p, IntPtr.Zero); }   // SHCNE_UPDATEDIR, SHCNF_PATHW
+
+        // janelas abertas na Lixeira (pelo título): do Explorador, que usa o nome da aba ativa, e do nosso Finder
         public static List<IntPtr> JanelasLixeira()
         {
             var r = new List<IntPtr>();
             EnumWindows((h, l) =>
             {
-                if (IsWindowVisible(h) && Classe(h) == "CabinetWClass")
+                if (!IsWindowVisible(h)) return true;
+                string c = Classe(h), t = Titulo(h);
+                if (c == "CabinetWClass")
                 {
-                    string t = Titulo(h);
                     if (t.StartsWith("Lixeira", StringComparison.OrdinalIgnoreCase) || t.StartsWith("Recycle Bin", StringComparison.OrdinalIgnoreCase)) r.Add(h);
                 }
+                else if (c.StartsWith("HwndWrapper") && t == "Lixeira — Finder") r.Add(h);
                 return true;
             }, IntPtr.Zero);
             return r;
