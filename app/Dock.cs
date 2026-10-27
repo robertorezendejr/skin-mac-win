@@ -129,7 +129,7 @@ namespace MacSkin
                 catch (Exception e) { Comum.Log("dock.log", "reiniciar: " + e.Message); }
             };
             menu.Items.Add(m1); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m5); menu.Items.Add(m2);
-            dock.ContextMenu = menu; LigarMenu(menu);
+            dock.ContextMenu = menu; LigarMenu(menu); MenuVidro.Aplicar(menu, false);
 
             // ordem na dock: apps fixados | apps abertos não fixados | Lixeira, com separadores
             sepAbertos = NovoSeparador(); sepAbertos.Visibility = Visibility.Collapsed;
@@ -364,7 +364,7 @@ namespace MacSkin
             if (abrir != "shell:RecycleBinFolder")   // a Lixeira não tem menu
             {
                 // o menu muda conforme o app está fixado e/ou aberto, então é montado na hora
-                var m = new ContextMenu(); el.Caixa.ContextMenu = m; LigarMenu(m);
+                var m = new ContextMenu(); el.Caixa.ContextMenu = m; LigarMenu(m); MenuVidro.Aplicar(m, true);
                 el.Caixa.ContextMenuOpening += delegate
                 {
                     m.Items.Clear();

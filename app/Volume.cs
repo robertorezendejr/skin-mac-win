@@ -1,7 +1,8 @@
-// Mac Skin Volume: indicador de volume no canto de cima à direita, como no macOS (Liquid Glass).
-// Escuta o volume do Windows pela API de áudio (sem consultar em intervalo), mostra um cartão de vidro acrylic
-// com o nome do dispositivo e a barra, e esconde o indicador nativo do Windows enquanto o nosso aparece.
+// Mac Skin Volume: indicador de volume e de brilho no canto de cima à direita, como no macOS (Liquid Glass).
+// Escuta o volume do Windows pela API de áudio e o brilho da tela pelo evento do WMI (sem consultar em intervalo),
+// mostra um cartão de vidro acrylic com o nome e a barra, e esconde o indicador nativo do Windows enquanto o nosso aparece.
 using System;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -35,6 +36,7 @@ namespace MacSkin
         DispatcherTimer escondeT, nativoT, dispositivoT;
         int nativoRestante;
         volatile int mudouEm = Environment.TickCount - 100000;   // quando o Windows avisou a última mudança (vem de outra thread)
+        ManagementEventWatcher vigiaBrilho;
 
         static void Log(string m) { Comum.Log("volume.log", m); }
 
@@ -114,10 +116,12 @@ namespace MacSkin
         {
             try { Win32.VigiarOsd(AoSurgirNativo); Ligar(); dispositivoT.Start(); Log("volume iniciado em " + epNome); }
             catch (Exception e) { Log("não iniciou: " + e.Message); }
+            LigarBrilho();
         }
 
         public void Parar()
         {
+            try { if (vigiaBrilho != null) { vigiaBrilho.Stop(); vigiaBrilho.Dispose(); } } catch { }
             try { Win32.PararOsd(); dispositivoT.Stop(); Desligar(); } catch { }
             try { janela.Close(); vidro.Close(); } catch { }
         }
@@ -173,6 +177,34 @@ namespace MacSkin
             return "Alto-falantes";
         }
 
+        // ---------- brilho da tela ----------
+        // as teclas de brilho (F6/F7 no Dell) mudam o brilho pelo firmware; o Windows avisa cada mudança neste evento.
+        // Só existe em tela de notebook; em monitor externo o evento não vem e o cartão de brilho não aparece.
+        void LigarBrilho()
+        {
+            try
+            {
+                vigiaBrilho = new ManagementEventWatcher(new ManagementScope(@"root\wmi"), new EventQuery("SELECT * FROM WmiMonitorBrightnessEvent"));
+                vigiaBrilho.EventArrived += (s, e) =>
+                {
+                    try
+                    {
+                        int b = Convert.ToInt32(e.NewEvent["Brightness"]);
+                        mudouEm = Environment.TickCount;
+                        janela.Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try { Exibir(b / 100f, false, true); }
+                            catch (Exception ex) { Log("exibir brilho: " + ex.Message); }
+                        }));
+                    }
+                    catch (Exception ex) { Log("evento brilho: " + ex.Message); }
+                };
+                vigiaBrilho.Start();
+                Log("brilho vigiado");
+            }
+            catch (Exception e) { Log("brilho não iniciou: " + e.Message); }
+        }
+
         // ---------- cartão ----------
         void AoMudar(float v, bool m)
         {
@@ -183,15 +215,17 @@ namespace MacSkin
             catch (Exception e) { Log("exibir: " + e.Message); }
         }
 
-        void Exibir(float v, bool m)
+        void Exibir(float v, bool m, bool brilho = false)
         {
             var c = Comum.TemaClaro();
             if (c != claro) { claro = c; Tema(c); }
 
-            titulo.Text = epNome;
+            titulo.Text = brilho ? "Brilho da Tela" : epNome;
             double pct = Math.Max(0, Math.Min(1, v));
             double alvo = m ? 0 : pct * Trilho;
-            iconeDir.Text = ((char)(m ? 0xE74F : pct <= 0 ? 0xE992 : pct < 0.34 ? 0xE993 : pct < 0.67 ? 0xE994 : 0xE995)).ToString();
+            // brilho: sol pequeno à esquerda e sol cheio à direita; volume: alto-falante com as ondas conforme o nível
+            iconeEsq.Text = ((char)(brilho ? 0xEC8A : 0xE992)).ToString();
+            iconeDir.Text = ((char)(brilho ? 0xE706 : m ? 0xE74F : pct <= 0 ? 0xE992 : pct < 0.34 ? 0xE993 : pct < 0.67 ? 0xE994 : 0xE995)).ToString();
             if (aberto) nivel.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(alvo, TimeSpan.FromMilliseconds(70)));
             else { nivel.BeginAnimation(FrameworkElement.WidthProperty, null); nivel.Width = alvo; }
 
@@ -249,7 +283,7 @@ namespace MacSkin
 
         // ---------- indicador nativo do Windows ----------
         // o indicador surge junto com a mudança de volume, às vezes um instante antes do aviso da API: esconde na hora e,
-        // se nenhuma mudança de volume veio logo depois (era o de brilho, por exemplo), mostra de volta
+        // se nenhuma mudança de volume ou de brilho veio logo depois (era o de modo avião, por exemplo), mostra de volta
         void AoSurgirNativo(IntPtr h)
         {
             Win32.Esconder(h);
