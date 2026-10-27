@@ -78,9 +78,10 @@ namespace MacSkin
             Opcao("Bloquear Tela", () => Abrir("rundll32.exe", "user32.dll,LockWorkStation"));
             Opcao("Encerrar Sessão de " + Environment.UserName + "…", () => { if (Confirmar("Encerrar a sessão agora? Apps abertos serão fechados.")) Abrir("shutdown.exe", "/l"); });
             // a barra não pega foco; para clicar fora fechar o menu, ela pega o foco enquanto o menu está aberto
+            MenuVidro.Aplicar(menuSis, false, true);
             menuSis.Opened += delegate { Win32.SetForegroundWindow(hwnd); };
             Janela.Deactivated += delegate { menuSis.IsOpen = false; };
-            Item(esq, logo, s => { menuSis.PlacementTarget = s; menuSis.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; menuSis.IsOpen = true; });
+            Item(esq, logo, s => { menuSis.PlacementTarget = s; menuSis.IsOpen = true; });
             appAtivo = Rotulo("", FontWeights.SemiBold);   // não exibido: só o logo fica à esquerda
 
             // ---------- direita (na ordem do Mac) ----------

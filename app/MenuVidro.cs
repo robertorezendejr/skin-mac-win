@@ -65,19 +65,21 @@ namespace MacSkin
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr depois, int x, int y, int w, int hh, uint f);
 
         // aplica o visual de vidro e a posição acima do alvo (centrado no ícone, ou no cursor quando é o fundo da dock)
-        public static void Aplicar(ContextMenu m, bool centrarNoAlvo)
+        // abaixo: menu que abre para baixo do alvo (barra de menus), alinhado à esquerda dele
+        public static void Aplicar(ContextMenu m, bool centrarNoAlvo, bool abaixo = false)
         {
             m.Resources = Recursos();
             m.Placement = PlacementMode.Custom;
             m.CustomPopupPlacementCallback = (popup, alvo, desloc) =>
             {
+                if (abaixo) return new[] { new CustomPopupPlacement(new Point(0, alvo.Height + 2), PopupPrimaryAxis.None) };
                 double x = centrarNoAlvo ? (alvo.Width - popup.Width) / 2 : Mouse.GetPosition(m.PlacementTarget).X - popup.Width / 2;
                 return new[] { new CustomPopupPlacement(new Point(x, -popup.Height - Acima), PopupPrimaryAxis.None) };
             };
             m.Opened += delegate
             {
                 Tema();
-                m.Dispatcher.BeginInvoke(new Action(() => MostrarVidro(m)), DispatcherPriority.Loaded);
+                m.Dispatcher.BeginInvoke(new Action(() => MostrarVidro(m, abaixo)), DispatcherPriority.Loaded);
             };
             m.Closed += delegate { if (vidro != null) vidro.Hide(); };
         }
@@ -103,7 +105,7 @@ namespace MacSkin
             if (hVidro != IntPtr.Zero) Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true);
         }
 
-        static void MostrarVidro(ContextMenu m)
+        static void MostrarVidro(ContextMenu m, bool abaixo)
         {
             try
             {
@@ -130,7 +132,7 @@ namespace MacSkin
                 // o WPF calcula a posição antes do menu ter o tamanho final: com ele pronto, encosta a base do menu
                 // um pouco acima do topo do alvo (o topo do ícone ou da dock), onde a dock não cobre
                 var alvo = m.PlacementTarget as FrameworkElement;
-                if (alvo != null)
+                if (alvo != null && !abaixo)
                 {
                     var topoAlvo = alvo.PointToScreen(new Point(0, 0)).Y;
                     var base0 = m.PointToScreen(new Point(0, m.ActualHeight)).Y;
