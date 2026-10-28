@@ -93,7 +93,22 @@ namespace MacSkin
             Win32.PostMessage(b.Item2, 0x00F5, IntPtr.Zero, IntPtr.Zero);   // BM_CLICK no botão original
         }
 
+        // confirmação do próprio Mac Skin (Reiniciar, Desligar...): o mesmo cartão, com "Cancelar" e a ação; acao só roda se confirmar
+        public static void Perguntar(string titulo, string msg, string rotulo, Action acao, char icone = (char)0xE7E8, string cor = "#FF3B30")
+        {
+            var cancelar = Tuple.Create("Cancelar", IntPtr.Zero); var sim = Tuple.Create(rotulo, IntPtr.Zero);
+            Mostrar(titulo, msg, new List<Tuple<string, IntPtr>> { sim, cancelar }, new List<Tuple<string, IntPtr>>(), sim, cancelar,
+                b => { if (b == sim) acao(); }, null, icone, cor);
+        }
+
         static void Mostrar(IntPtr nativo, string titulo, string msg, List<Tuple<string, IntPtr>> botoes, List<Tuple<string, IntPtr>> caixas)
+        {
+            Mostrar(titulo, msg, botoes, caixas, botoes.FirstOrDefault(b => b.Item1 == "Sim") ?? botoes.First(), botoes.FirstOrDefault(b => b.Item1 == "Não") ?? botoes.Last(),
+                b => Responder(nativo, b), item => Win32.PostMessage(item.Item2, 0x00F5, IntPtr.Zero, IntPtr.Zero), (char)0xE7BA, "#FF9F0A");
+        }
+
+        static void Mostrar(string titulo, string msg, List<Tuple<string, IntPtr>> botoes, List<Tuple<string, IntPtr>> caixas,
+            Tuple<string, IntPtr> padrao, Tuple<string, IntPtr> negativo, Action<Tuple<string, IntPtr>> responder, Action<Tuple<string, IntPtr>> alternar, char icone, string cor)
         {
             bool c = Comum.TemaClaro();
             Brush texto = Comum.Cor(c ? "#E6000000" : "#FFFFFFFF"), suave = Comum.Cor(c ? "#99000000" : "#B3FFFFFF");
@@ -106,12 +121,10 @@ namespace MacSkin
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000
             };
             janela = w;
-            Action<Tuple<string, IntPtr>> escolher = b => { if (respondido) return; respondido = true; Responder(nativo, b); w.Close(); };
-            var negativo = botoes.FirstOrDefault(b => b.Item1 == "Não") ?? botoes.Last();
-            var padrao = botoes.FirstOrDefault(b => b.Item1 == "Sim") ?? botoes.First();
+            Action<Tuple<string, IntPtr>> escolher = b => { if (respondido) return; respondido = true; w.Close(); responder(b); };
 
-            var iconeVidro = new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(22), Background = Comum.Cor(c ? "#26FF9F0A" : "#33FF9F0A"), VerticalAlignment = VerticalAlignment.Top };
-            iconeVidro.Child = new TextBlock { Text = ((char)0xE7BA).ToString(), FontFamily = Icones, FontSize = 22, Foreground = Comum.Cor("#FF9F0A"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var iconeVidro = new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(22), Background = Comum.Cor((c ? "#26" : "#33") + cor.Substring(1)), VerticalAlignment = VerticalAlignment.Top };
+            iconeVidro.Child = new TextBlock { Text = icone.ToString(), FontFamily = Icones, FontSize = 22, Foreground = Comum.Cor(cor), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             var cabeca = new StackPanel { Margin = new Thickness(14, 2, 0, 0) };
             cabeca.Children.Add(new TextBlock { Text = titulo, FontFamily = Fonte, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = texto, TextWrapping = TextWrapping.Wrap });
             cabeca.Children.Add(new TextBlock { Text = msg, FontFamily = Fonte, FontSize = 13, Foreground = suave, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
@@ -148,7 +161,7 @@ namespace MacSkin
                     marcada = !marcada;
                     quadro.Background = marcada ? Comum.Cor("#FF007AFF") : Brushes.Transparent; quadro.BorderBrush = marcada ? Comum.Cor("#FF007AFF") : suave;
                     marca.Visibility = marcada ? Visibility.Visible : Visibility.Collapsed;
-                    Win32.PostMessage(item.Item2, 0x00F5, IntPtr.Zero, IntPtr.Zero);   // alterna a caixa original
+                    alternar(item);   // alterna a caixa original
                 };
                 pilha.Children.Add(linhaCx);
             }
@@ -175,7 +188,7 @@ namespace MacSkin
                 else if (e.Key == Key.Enter) escolher(padrao);
             };
             // fechar por outro meio (Alt+F4) vale como "Não"; o nativo some quando for respondido
-            w.Closed += delegate { if (!respondido) { respondido = true; Responder(nativo, negativo); } if (janela == w) janela = null; };
+            w.Closed += delegate { if (!respondido) { respondido = true; responder(negativo); } if (janela == w) janela = null; };
             w.Show();
             w.UpdateLayout();
             w.Left = (SystemParameters.PrimaryScreenWidth - w.ActualWidth) / 2; w.Top = (SystemParameters.PrimaryScreenHeight - w.ActualHeight) / 2 - 40;   // centro da tela principal

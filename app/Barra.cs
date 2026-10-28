@@ -72,11 +72,11 @@ namespace MacSkin
             Opcao("Forçar Encerrar…", () => Abrir("taskmgr.exe"));
             Opcao(null, null);
             Opcao("Suspender", () => System.Windows.Forms.Application.SetSuspendState(System.Windows.Forms.PowerState.Suspend, false, false));
-            Opcao("Reiniciar…", () => { if (Confirmar("Reiniciar o computador agora?")) Abrir("shutdown.exe", "/r /t 0"); });
-            Opcao("Desligar…", () => { if (Confirmar("Desligar o computador agora?")) Abrir("shutdown.exe", "/s /t 0"); });
+            Opcao("Reiniciar…", () => Confirmacao.Perguntar("Reiniciar o computador agora?", "Os apps abertos serão fechados.", "Reiniciar", () => Abrir("shutdown.exe", "/r /t 0"), (char)0xE72C, "#FF9F0A"));
+            Opcao("Desligar…", () => Confirmacao.Perguntar("Desligar o computador agora?", "Os apps abertos serão fechados.", "Desligar", () => Abrir("shutdown.exe", "/s /t 0")));
             Opcao(null, null);
             Opcao("Bloquear Tela", () => Abrir("rundll32.exe", "user32.dll,LockWorkStation"));
-            Opcao("Encerrar Sessão de " + Environment.UserName + "…", () => { if (Confirmar("Encerrar a sessão agora? Apps abertos serão fechados.")) Abrir("shutdown.exe", "/l"); });
+            Opcao("Encerrar Sessão de " + Environment.UserName + "…", () => Confirmacao.Perguntar("Encerrar a sessão de " + Environment.UserName + " agora?", "Os apps abertos serão fechados.", "Encerrar Sessão", () => Abrir("shutdown.exe", "/l"), (char)0xF3B1, "#007AFF"));
             // a barra não pega foco; para clicar fora fechar o menu, ela pega o foco enquanto o menu está aberto
             MenuVidro.Aplicar(menuSis, false, true);
             menuSis.Opened += delegate { Win32.SetForegroundWindow(hwnd); };
@@ -196,7 +196,6 @@ namespace MacSkin
             mi.Click += delegate { acao(); };
             menuSis.Items.Add(mi);
         }
-        static bool Confirmar(string msg) { return MessageBox.Show(msg, "Mac Skin", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes; }
         static void Abrir(string o, string args = "") { try { Process.Start(o, args); } catch (Exception e) { Log("abrir " + o + ": " + e.Message); } }
 
         // ---------- atualização ----------
