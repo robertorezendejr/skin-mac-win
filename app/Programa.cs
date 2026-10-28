@@ -66,12 +66,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Confirmacao.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar();
             int r = app.Run();
             GC.KeepAlive(mutex);
             return r;
