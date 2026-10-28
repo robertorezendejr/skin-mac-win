@@ -73,6 +73,8 @@ namespace MacSkin
         StackPanel lateral, caminhoBarra;
         TextBlock titulo, statusSelecao;
         TextBox busca, endereco;
+        FrameworkElement limparLixo;
+        Button bLimparLixo;
         Button voltar, avancar;
         ToggleButton vLista, vIcones, vGaleria;
         readonly ObservableCollection<Entrada> itens = new ObservableCollection<Entrada>();
@@ -123,6 +125,8 @@ namespace MacSkin
 
             voltar.Click += delegate { if (pos > 0) { pos--; Navegar(historico[pos], false); } };
             avancar.Click += delegate { if (pos < historico.Count - 1) { pos++; Navegar(historico[pos], false); } };
+            limparLixo = (FrameworkElement)w.FindName("limparLixo"); bLimparLixo = (Button)w.FindName("bLimparLixo");
+            bLimparLixo.Click += delegate { EsvaziarLixeira(); };
             vLista.Click += delegate { Modo("lista"); };
             vIcones.Click += delegate { Modo("icones"); };
             vGaleria.Click += delegate { Modo("galeria"); };
@@ -545,6 +549,7 @@ namespace MacSkin
             voltar.IsEnabled = pos > 0; avancar.IsEnabled = pos < historico.Count - 1;
             titulo.Text = NomeLocal(destino);
             w.Title = titulo.Text + " — Finder";
+            limparLixo.Visibility = destino == Lixo ? Visibility.Visible : Visibility.Collapsed;   // o botão “Limpar Lixeira” só aparece na Lixeira
             var gv = lista.View as GridView;   // na Lixeira a data é a de quando o item foi apagado
             var colData = gv == null ? null : gv.Columns.FirstOrDefault(c => (c.Header as string) == "Data de Modificação" || (c.Header as string) == "Apagado em");
             if (colData != null) colData.Header = destino == Lixo ? "Apagado em" : "Data de Modificação";
@@ -1037,6 +1042,7 @@ namespace MacSkin
             int total = visao == null ? itens.Count : visao.Cast<object>().Count();
             string itensTexto = total == 1 ? "1 item" : total.ToString("N0", PtBr) + " itens";
             statusSelecao.Text = n == 0 ? itensTexto : itensTexto + " | " + (n == 1 ? "1 item selecionado" : n.ToString("N0", PtBr) + " itens selecionados");
+            if (bLimparLixo != null) bLimparLixo.IsEnabled = itens.Count > 0;
         }
 
         static Entrada Sob(MouseEventArgs e)
@@ -1810,6 +1816,8 @@ namespace MacSkin
             <ToggleButton x:Name='vLista' Style='{StaticResource Plano}' ToolTip='Lista' IsChecked='True'><TextBlock FontFamily='{StaticResource Ico}' Text='&#xE8FD;' FontSize='13'/></ToggleButton>
             <ToggleButton x:Name='vGaleria' Style='{StaticResource Plano}' ToolTip='Galeria'><TextBlock FontFamily='{StaticResource Ico}' Text='&#xE8B9;' FontSize='13'/></ToggleButton>
           </StackPanel></Border>
+        <Border x:Name='limparLixo' DockPanel.Dock='Right' Visibility='Collapsed' Background='{DynamicResource Pilula}' CornerRadius='15' VerticalAlignment='Center' Padding='2' Margin='0,0,8,0'>
+          <Button x:Name='bLimparLixo' Style='{StaticResource Plano}' Padding='12,5'><TextBlock Text='Limpar Lixeira' FontSize='12.5'/></Button></Border>
       </DockPanel>
 
       <!-- lista -->
