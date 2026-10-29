@@ -196,15 +196,17 @@ namespace MacSkin
         }
 
         // tamanho do conteúdo (em DIPs, sem a barra de cima), limitado à tela do Finder e centrado nela
-        void Tamanho(double lw, double la)
+        // proporcional = false: largura e altura limitadas cada uma por si (páginas de documento)
+        void Tamanho(double lw, double la, bool proporcional = true)
         {
             var ponte = PresentationSource.FromVisual(dono);
             double dpi = ponte == null ? 1 : ponte.CompositionTarget.TransformToDevice.M11;
             var t = System.Windows.Forms.Screen.FromHandle(new WindowInteropHelper(dono).Handle).WorkingArea;
             double tl = t.Width / dpi, ta = t.Height / dpi, maxL = tl * 0.85, maxA = ta * 0.85 - 44;
             double f = Math.Min(1, Math.Min(maxL / lw, maxA / la));
-            w.Width = Math.Max(w.MinWidth, lw * f);
-            w.Height = Math.Max(w.MinHeight, la * f + 44);
+            double fl = proporcional ? f : Math.Min(1, maxL / lw), fa = proporcional ? f : Math.Min(1, maxA / la);
+            w.Width = Math.Max(w.MinWidth, lw * fl);
+            w.Height = Math.Max(w.MinHeight, la * fa + 44);
             w.Left = t.Left / dpi + (tl - w.Width) / 2;
             w.Top = t.Top / dpi + (ta - w.Height) / 2;
         }
@@ -219,9 +221,10 @@ namespace MacSkin
                 if (minha != vez) return;
                 if (t.Exception != null || t.Result == null) { TextoOuFicha(e); return; }
                 var b = t.Result;
-                area.Child = new Image { Source = b, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Margin = new Thickness(0, 0, 0, 0) };
+                area.Child = new Image { Source = b, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 0, 0) };
                 RenderOptions.SetBitmapScalingMode(area.Child, BitmapScalingMode.HighQuality);
-                Tamanho(Math.Max(b.PixelWidth, 320), Math.Max(b.PixelHeight, 200));
+                // o dobro do tamanho em pixels, limitado à tela
+                Tamanho(Math.Max(b.PixelWidth * 2, 320), Math.Max(b.PixelHeight * 2, 200));
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
@@ -360,7 +363,7 @@ namespace MacSkin
             hosp = new Hospedeiro();
             area.Background = Comum.Cor("#FFFFFFFF");
             area.Child = hosp;
-            Tamanho(960, 1100);
+            Tamanho(1920, 1100, false);
             // o handler precisa da janela filha já criada e com tamanho
             w.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
