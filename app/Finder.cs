@@ -263,7 +263,12 @@ namespace MacSkin
             AtualizarStatusSelecao();
         }
 
-        public void Mostrar() { w.Show(); w.Activate(); lista.Focus(); }
+        public void Mostrar()
+        {
+            w.Show(); w.Activate(); lista.Focus();
+            // aberto por outro processo (o Explorador trocado pelo Finder), o Windows deixa a janela atrás da que estava em foco
+            w.Topmost = true; w.Topmost = false;
+        }
 
         // diagnóstico (MacSkin.exe --medir-finder pasta saida.txt): grava o tamanho real, em pixels, do ícone de cada linha e fecha
         public void Medir(string saida)
