@@ -101,8 +101,11 @@ namespace MacSkin
 
         static void Log(string m) { Comum.Log("finder.log", m); }
 
-        public Finder(string inicial)
+        string selecionarDepois;   // arquivo a selecionar quando a pasta terminar de carregar (vem do /select do Explorador)
+
+        public Finder(string inicial, string selecionar = null)
         {
+            selecionarDepois = selecionar;
             w = (Window)XamlReader.Parse(Xaml);
             lista = (ListView)w.FindName("lista"); icones = (ListBox)w.FindName("icones");
             laco = (Canvas)w.FindName("laco"); lacoRet = (FrameworkElement)w.FindName("lacoRet");
@@ -518,7 +521,7 @@ namespace MacSkin
             b.MouseLeave += delegate { if (destino != atual) b.Background = Brushes.Transparent; };
             b.MouseLeftButtonUp += delegate
             {
-                if (destino.StartsWith("shell:")) { Process.Start("explorer.exe", destino); return; }
+                if (destino.StartsWith("shell:")) { Explorador.Liberar(); Process.Start("explorer.exe", destino); return; }
                 Navegar(destino, true);
             };
             // soltar arquivos num atalho da lateral copia/move para lá
@@ -748,6 +751,12 @@ namespace MacSkin
                 }
                 PedirIcones();
                 if (antes != null) foreach (var e in itens.Where(x => antes.Contains(x.Caminho))) lista.SelectedItems.Add(e);
+                if (selecionarDepois != null)
+                {
+                    var alvo = itens.FirstOrDefault(x => string.Equals(x.Caminho, selecionarDepois, StringComparison.OrdinalIgnoreCase));
+                    selecionarDepois = null;
+                    if (alvo != null) { lista.SelectedItem = alvo; lista.ScrollIntoView(alvo); }
+                }
                 AtualizarStatusSelecao();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
@@ -1156,6 +1165,7 @@ namespace MacSkin
         void MostrarNoExplorador()
         {
             var sel = Selecionados().ToList();
+            Explorador.Liberar();
             if (sel.Count > 0) Process.Start("explorer.exe", "/select,\"" + sel[0].Caminho + "\"");
             else if (atual == Lixo) Process.Start("explorer.exe", "shell:RecycleBinFolder");
             else if (atual != Recentes) Process.Start("explorer.exe", "\"" + atual + "\"");
@@ -1268,8 +1278,6 @@ namespace MacSkin
         void ApagarDoLixo(List<Entrada> sel)
         {
             if (sel.Count == 0) return;
-            string q = sel.Count == 1 ? "Apagar “" + sel[0].Nome + "” imediatamente?" : "Apagar " + sel.Count + " itens imediatamente?";
-            if (MessageBox.Show(w, q + "\nEsta ação não pode ser desfeita.", "Finder", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             foreach (var e in sel)
             {
                 try

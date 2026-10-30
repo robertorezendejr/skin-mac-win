@@ -20,7 +20,7 @@ namespace MacSkin
         static int Main(string[] args)
         {
             if (args.Length > 0 && args[0] == "--vigia") return Vigia();
-            if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null);
+            if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null, null, args.Length > 2 ? args[2] : null);
             if (args.Length > 2 && args[0] == "--medir-finder") return AbrirFinder(args[1], args[2]);
             if (args.Length > 0 && args[0] == "--janelas")   // diagnóstico: o que a dock enxerga como app aberto
             {
@@ -33,13 +33,13 @@ namespace MacSkin
         }
 
         // cada janela do Finder é um processo à parte: se uma travar numa pasta de rede, as outras e a dock seguem
-        static int AbrirFinder(string pasta, string medirEm = null)
+        static int AbrirFinder(string pasta, string medirEm = null, string selecionar = null)
         {
             var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
             app.DispatcherUnhandledException += (s, e) => { Comum.Log("finder.log", "falha: " + e.Exception); e.Handled = true; };
             // a leitura da pasta (Task) devolve o resultado para a tela por este contexto; sem ele, só existiria após o Run
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
-            try { var f = new Finder(pasta); f.Mostrar(); if (medirEm != null) f.Medir(medirEm); }
+            try { var f = new Finder(pasta, selecionar); f.Mostrar(); if (medirEm != null) f.Medir(medirEm); }
             catch (Exception e) { Comum.Log("finder.log", "não abriu: " + e); return 1; }
             return app.Run();
         }
@@ -66,12 +66,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Confirmacao.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Confirmacao.Parar(); Explorador.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar();
             int r = app.Run();
             GC.KeepAlive(mutex);
             return r;
