@@ -66,12 +66,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Confirmacao.Parar(); Explorador.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Substituicao.Iniciar();
             // mais leve: a cada minuto devolve ao Windows a memória que o .NET não está usando
             var leve = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
             leve.Tick += delegate { GC.Collect(); GC.WaitForPendingFinalizers(); SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1)); };

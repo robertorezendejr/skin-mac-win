@@ -128,7 +128,9 @@ namespace MacSkin
                 }
                 catch (Exception e) { Comum.Log("dock.log", "reiniciar: " + e.Message); }
             };
-            menu.Items.Add(m1); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m5); menu.Items.Add(m2);
+            var m6 = new MenuItem { Header = "Substituição de Texto…" };
+            m6.Click += delegate { Substituicao.AbrirEditor(); };
+            menu.Items.Add(m1); menu.Items.Add(m6); menu.Items.Add(m4); menu.Items.Add(m3); menu.Items.Add(m5); menu.Items.Add(m2);
             dock.ContextMenu = menu; LigarMenu(menu); MenuVidro.Aplicar(menu, false);
 
             // ordem na dock: apps fixados | apps abertos não fixados | Lixeira, com separadores
