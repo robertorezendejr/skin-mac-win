@@ -270,6 +270,8 @@ function Instalar-Dock {
 }
 # MacSkin.exe nativo (um processo, leve) quando existe; senão, os scripts PowerShell
 function Comando-Vigia {
+    $vigia = Join-Path $Dir 'MacSkinVigia.exe'   # vigia nativo em C (23 KB, quase sem memória)
+    if ((Test-Path $vigia) -and (Test-Path (Join-Path $Dir 'MacSkin.exe'))) { return $vigia, '' }
     $nativo = Join-Path $Dir 'MacSkin.exe'
     if (Test-Path $nativo) { return $nativo, '--vigia' }
     return 'powershell.exe', "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Dir\vigia.ps1`""
@@ -277,14 +279,14 @@ function Comando-Vigia {
 function Abrir-Dock {
     Remove-Item (Join-Path $Dir 'desligado') -ErrorAction SilentlyContinue
     $exe, $argumentos = Comando-Vigia
-    if ($exe -ne 'powershell.exe' -or (Test-Path (Join-Path $Dir 'vigia.ps1'))) { Start-Process $exe $argumentos -WindowStyle Hidden }
+    if ($exe -ne 'powershell.exe' -or (Test-Path (Join-Path $Dir 'vigia.ps1'))) { if ($argumentos) { Start-Process $exe $argumentos -WindowStyle Hidden } else { Start-Process $exe -WindowStyle Hidden } }
 }
 # fecha pedindo (WM_CLOSE): assim dock e barra devolvem o espaço reservado e a barra do Windows volta
 function Fechar-Dock {
     $ps = { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match '(vigia|dock|botoes|barra)\.ps1') -or
-        ($_.Name -eq 'MacSkin.exe' -and $_.CommandLine -notmatch '--finder') } }   # janelas do Finder ficam abertas
-    & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1|--vigia' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        ($_.Name -eq 'MacSkin.exe' -and $_.CommandLine -notmatch '--finder') -or $_.Name -eq 'MacSkinVigia.exe' } }   # janelas do Finder ficam abertas
+    & $ps | Where-Object { $_.CommandLine -match 'vigia\.ps1|--vigia' -or $_.Name -eq 'MacSkinVigia.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     try {
         Win32
         foreach ($t in 'Mac Skin Dock', 'Mac Skin Barra', 'Mac Skin Botoes') {

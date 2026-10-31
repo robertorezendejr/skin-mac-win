@@ -214,7 +214,7 @@ namespace MacSkin
         IntPtr h; bool? claro;
         // depois de um clique num ícone o app abre o menu/janela dele e a caixa perde o foco: ela continua aberta
         // até um clique fora dela e fora desse app (ou outro app vir para a frente)
-        uint segurando; DispatcherTimer vigiaClique;
+        uint segurando; DispatcherTimer vigiaClique; int escondeuEm = Environment.TickCount - 100000;
         Brush texto = Brushes.White, sobre = Comum.Cor("#26FFFFFF");
         static readonly Brush Nada = Comum.Cor("#01FFFFFF");
         static readonly FontFamily Fonte = new FontFamily("Inter, Segoe UI");
@@ -262,7 +262,7 @@ namespace MacSkin
                 HwndSource.FromHwnd(h).CompositionTarget.BackgroundColor = Colors.Transparent;
                 Win32.Estilo(h, Win32.EX_TOOL);
             };
-            jan.Deactivated += delegate { if (segurando == 0) jan.Hide(); };   // clicou fora
+            jan.Deactivated += delegate { if (segurando == 0) { jan.Hide(); escondeuEm = Environment.TickCount; } };   // clicou fora
             jan.Activated += delegate { Soltar(); };
             vigiaClique = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
             vigiaClique.Tick += delegate { Vigiar(); };
@@ -273,6 +273,8 @@ namespace MacSkin
         public void Alternar(Point canto)
         {
             if (jan.IsVisible) { Esconder(); return; }
+            // clicar no ícone com a caixa aberta: o clique tira o foco dela (fecha) e logo chega aqui; não reabre
+            if (Environment.TickCount - escondeuEm < 400) return;
             Bandeja.Limpar();
             Montar();
             vidro.Show();

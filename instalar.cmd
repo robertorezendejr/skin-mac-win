@@ -29,6 +29,7 @@ rem o exe pode estar em uso (dock ou janelas do Finder): o Windows deixa renomea
 del /q "%DEST%\MacSkin.antigo-*.exe" >nul 2>&1
 if exist "%SRC%\MacSkin.exe" if exist "%DEST%\MacSkin.exe" ren "%DEST%\MacSkin.exe" "MacSkin.antigo-%RANDOM%.exe"
 if exist "%SRC%\MacSkin.exe" copy /y "%SRC%\MacSkin.exe" "%DEST%\" >nul
+if exist "%SRC%\MacSkinVigia.exe" copy /y "%SRC%\MacSkinVigia.exe" "%DEST%\" >nul
 copy /y "%SRC%\dock.ps1" "%DEST%\" >nul && copy /y "%SRC%\barra.ps1" "%DEST%\" >nul && copy /y "%SRC%\botoes.ps1" "%DEST%\" >nul &&copy /y "%SRC%\vigia.ps1" "%DEST%\" >nul && set "COMP=%COMP%,dock"
 copy /y "%~dp0desinstalar.cmd" "%DEST%\" >nul
 

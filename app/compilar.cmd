@@ -15,3 +15,6 @@ if exist "%~dp0..\instalador\payload\icones\Finder.ico" set "ICO=/win32icon:%~dp
   "%~dp0*.cs"
 if errorlevel 1 (echo Falha ao compilar o MacSkin.exe. & exit /b 1)
 echo MacSkin.exe compilado.
+rem vigia nativo em C (23 KB): só se houver gcc (MinGW); sem ele, o login usa "MacSkin.exe --vigia"
+where gcc >nul 2>&1 && gcc -O2 -s -mwindows -municode "%~dp0vigia.c" -o "%~dp0..\instalador\MacSkinVigia.exe" && echo MacSkinVigia.exe compilado.
+exit /b 0
