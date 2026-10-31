@@ -165,6 +165,7 @@ namespace MacSkin
             };
             relogio = Rotulo("", FontWeights.Medium);
             menuCal = Popover.Criar(Janela, () => hwnd, Popover.Calendario);
+            Agenda.Iniciar(Janela.Dispatcher);   // compromissos do Outlook (só lê com ele aberto)
             Item(dir, relogio, s => Popover.Abrir(menuCal, s, menuWifi, menuBt));
 
             Janela.SourceInitialized += delegate

@@ -182,33 +182,56 @@ namespace MacSkin
         static int mesDeslocado;   // meses a partir de hoje
         static ContextMenu menuCal;
 
+        static Action aoMudarAgenda; static bool agendaLigada;
+
         public static void Calendario(ContextMenu m)
         {
             mesDeslocado = 0; menuCal = m;
-            var dono = new Border { Width = 244, Margin = new Thickness(2) };
+            var dono = new Border { Width = 252, Margin = new Thickness(2) };
             m.Items.Add(dono);
-            MontarMes(dono);
+            MontarMes(dono, m);
+            if (!agendaLigada) { agendaLigada = true; Agenda.Mudou += () => { if (menuCal != null && menuCal.IsOpen && aoMudarAgenda != null) aoMudarAgenda(); }; }
+            Agenda.Atualizar();   // relê do Outlook (se estiver aberto) e redesenha se mudou
         }
 
         // o cabeçalho (com as setas) é criado uma vez só: trocar o elemento clicado fazia o menu perder o foco e fechar;
-        // só o título e a grade de dias são refeitos
-        static void MontarMes(Border dono)
+        // só o título, a grade de dias e a lista de próximos são refeitos
+        static void MontarMes(Border dono, ContextMenu m)
         {
             var c = new Cores(Comum.TemaClaro());
             var raiz = new StackPanel { Margin = new Thickness(8, 4, 8, 6) };
             var titulo = T("", 12, FontWeights.Bold, Vermelho); titulo.HorizontalAlignment = HorizontalAlignment.Left;
-            var corpo = new Border();
+            var corpo = new Border(); var proximos = new Border();
             Action atualizar = () => PreencherMes(titulo, corpo, c);
-            var cab = new Grid { Margin = new Thickness(2, 2, 2, 6) };
+            var cab = new Grid { Margin = new Thickness(2, 2, 2, 4) };
             cab.Children.Add(titulo);
             var nav = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             nav.Children.Add(Seta(c, 0xE76B, () => { mesDeslocado--; atualizar(); }));
             nav.Children.Add(Seta(c, 0xEA3B, () => { mesDeslocado = 0; atualizar(); }));
             nav.Children.Add(Seta(c, 0xE76C, () => { mesDeslocado++; atualizar(); }));
             cab.Children.Add(nav);
-            raiz.Children.Add(cab); raiz.Children.Add(corpo);
+            raiz.Children.Add(cab); raiz.Children.Add(corpo); raiz.Children.Add(proximos);
             dono.Child = raiz;
-            atualizar();
+            atualizar(); PreencherProximos(proximos, c);
+            aoMudarAgenda = () =>
+            {
+                atualizar(); PreencherProximos(proximos, c);
+                // a lista muda de altura: reencaixa o vidro depois do novo tamanho
+                m.Dispatcher.BeginInvoke(new Action(() => { if (m.IsOpen) MenuVidro.Reposicionar(m); }), System.Windows.Threading.DispatcherPriority.Loaded);
+            };
+        }
+
+        // cores dos compromissos de cada dia (na ordem do horário)
+        static Dictionary<DateTime, List<string>> CoresPorDia()
+        {
+            var r = new Dictionary<DateTime, List<string>>();
+            foreach (var e in Agenda.Itens)
+                foreach (var d in e.Dias())
+                {
+                    List<string> l; if (!r.TryGetValue(d, out l)) r[d] = l = new List<string>();
+                    l.Add(e.Cor);
+                }
+            return r;
         }
 
         static void PreencherMes(TextBlock titulo, Border corpo, Cores c)
@@ -216,24 +239,100 @@ namespace MacSkin
             var hoje = DateTime.Today;
             var base1 = new DateTime(hoje.Year, hoje.Month, 1).AddMonths(mesDeslocado);
             titulo.Text = PtBr.DateTimeFormat.GetMonthName(base1.Month).ToUpper(PtBr) + (base1.Year != hoje.Year ? " " + base1.Year : "");
+            var porDia = CoresPorDia();
             var grade = new UniformGrid7();
             string letras = "DSTQQSS";
-            for (int i = 0; i < 7; i++) grade.Children.Add(Celula(letras[i].ToString(), c.Sub, false, 1, FontWeights.SemiBold));
+            for (int i = 0; i < 7; i++) grade.Children.Add(Celula(letras[i].ToString(), c.Sub, false, 1, FontWeights.SemiBold, 24, null));
             // sempre 6 linhas: o tamanho da caixa não muda de um mês para outro
             var d0 = base1.AddDays(-(int)base1.DayOfWeek);
             for (int i = 0; i < 42; i++)
             {
                 var d = d0.AddDays(i);
                 bool deste = d.Month == base1.Month, ehHoje = d.Date == hoje, fim = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
-                var cel = Celula(d.Day.ToString(), ehHoje ? Brushes.White : fim ? c.Sub : c.Tx, ehHoje, deste ? 1 : 0.35, ehHoje ? FontWeights.Bold : FontWeights.Medium);
+                List<string> cores; porDia.TryGetValue(d, out cores);
+                var cel = Celula(d.Day.ToString(), ehHoje ? Brushes.White : fim ? c.Sub : c.Tx, ehHoje, deste ? 1 : 0.35, ehHoje ? FontWeights.Bold : FontWeights.Medium, 34,
+                    cores == null ? null : cores.Take(3).Select(x => ehHoje ? "#FFFFFFFF" : x).ToList());
                 // clicar num dia abre o Calendário do Microsoft 365 (compromissos); ele não fica rodando em segundo plano
-                var marca = new Ellipse { Width = 26, Height = 26, Fill = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Center };
-                cel.Children.Insert(0, marca); cel.Background = Brushes.Transparent; cel.Cursor = Cursors.Hand;
+                var caixa = (Grid)cel.Children[0];
+                var marca = new Ellipse { Width = 26, Height = 26, Fill = Brushes.Transparent, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                caixa.Children.Insert(0, marca); cel.Background = Brushes.Transparent; cel.Cursor = Cursors.Hand;
                 if (!ehHoje) { cel.MouseEnter += delegate { marca.Fill = c.Hover; }; cel.MouseLeave += delegate { marca.Fill = Brushes.Transparent; }; }
                 Clicavel(cel, () => { if (menuCal != null) Fechar(menuCal); Agenda365.Abrir(); });
                 grade.Children.Add(cel);
             }
             corpo.Child = grade;
+        }
+
+        // número numa caixa de 28 px no alto; pontinhos coloridos (até 3) logo abaixo, como no Calendário do Mac
+        static Grid Celula(string txt, Brush cor, bool destaque, double opac, FontWeight peso, double altura, List<string> pontos)
+        {
+            var g = new Grid { Height = altura };
+            var caixa = new Grid { Height = Math.Min(28, altura), VerticalAlignment = VerticalAlignment.Top };
+            if (destaque) caixa.Children.Add(new Ellipse { Width = 26, Height = 26, Fill = Vermelho, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            var t = T(txt, 13, peso, cor); t.HorizontalAlignment = HorizontalAlignment.Center; t.Opacity = opac;
+            caixa.Children.Add(t);
+            g.Children.Add(caixa);
+            if (pontos != null && pontos.Count > 0)
+            {
+                var fila = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 29, 0, 0), Opacity = opac };
+                foreach (var p in pontos) fila.Children.Add(new Ellipse { Width = 4, Height = 4, Margin = new Thickness(1, 0, 1, 0), Fill = Comum.Cor(p) });
+                g.Children.Add(fila);
+            }
+            return g;
+        }
+
+        // lista dos próximos compromissos (até 3), agrupados por dia: "HOJE · SÁB., 31 DE OUT."
+        static void PreencherProximos(Border dono, Cores c)
+        {
+            var agora = DateTime.Now; var hoje = DateTime.Today;
+            var lista = new StackPanel();
+            lista.Children.Add(new Border { Height = 1, Margin = new Thickness(4, 8, 4, 6), Background = c.Sep });
+            var prox = Agenda.Itens
+                .Where(e => (e.DiaTodo ? e.Fim.Date > hoje : e.Fim > agora) && e.Ini < hoje.AddDays(15))
+                .OrderBy(e => e.Ini < hoje ? hoje : e.Ini)
+                .GroupBy(e => e.Titulo).Select(g => g.First())   // reunião que se repete todo dia aparece uma vez só
+                .Take(3).ToList();
+            if (prox.Count == 0)
+            {
+                var vazio = T(Agenda.Itens.Count == 0 ? "Abra o Outlook para ver seus compromissos" : "Nenhum compromisso nos próximos dias", 11, FontWeights.Normal, c.Sub);
+                vazio.Margin = new Thickness(6, 0, 6, 2); lista.Children.Add(vazio);
+            }
+            DateTime? diaAtual = null;
+            foreach (var e in prox)
+            {
+                var d = e.Ini.Date < hoje ? hoje : e.Ini.Date;
+                if (diaAtual != d)
+                {
+                    diaAtual = d;
+                    var rot = T(NomeDia(d).ToUpper(PtBr), 10.5, FontWeights.Bold, c.Sub);
+                    rot.Margin = new Thickness(6, lista.Children.Count > 1 ? 6 : 0, 6, 2);
+                    lista.Children.Add(rot);
+                }
+                var linha = new Grid();
+                linha.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                linha.ColumnDefinitions.Add(new ColumnDefinition());
+                linha.Children.Add(new Border { Width = 3, CornerRadius = new CornerRadius(1.5), Background = Comum.Cor(e.Cor), Margin = new Thickness(0, 1, 8, 1) });
+                var col = new StackPanel(); Grid.SetColumn(col, 1);
+                col.Children.Add(T(e.Titulo.Length > 0 ? e.Titulo : "(sem título)", 12, FontWeights.SemiBold, c.Tx));
+                string quando = e.DiaTodo ? "Dia inteiro" : e.Ini.ToString("HH:mm") + " – " + e.Fim.ToString("HH:mm");
+                if (e.Local.Length > 0) quando += " · " + e.Local;
+                col.Children.Add(T(quando, 11, FontWeights.Normal, c.Sub));
+                linha.Children.Add(col);
+                var b = Linha(c, linha, () => { if (menuCal != null) Fechar(menuCal); Agenda365.Abrir(); });
+                b.Padding = new Thickness(6, 3, 6, 3);
+                lista.Children.Add(b);
+            }
+            dono.Child = lista;
+        }
+
+        static string NomeDia(DateTime d)
+        {
+            var hoje = DateTime.Today;
+            string mes = d.ToString("MMM", PtBr).TrimEnd('.') + ".";
+            if (d == hoje || d == hoje.AddDays(1))
+                return (d == hoje ? "Hoje" : "Amanhã") + " · " + d.ToString("ddd", PtBr).TrimEnd('.') + "., " + d.Day + " de " + mes;
+            string nome = PtBr.DateTimeFormat.GetDayName(d.DayOfWeek).Replace("-feira", "");
+            return char.ToUpper(nome[0]) + nome.Substring(1) + " · " + d.Day + " de " + mes;
         }
 
         static UIElement Seta(Cores c, int glifo, Action acao)
@@ -244,15 +343,6 @@ namespace MacSkin
             b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
             Clicavel(b, acao);
             return b;
-        }
-
-        static Grid Celula(string txt, Brush cor, bool destaque, double opac, FontWeight peso)
-        {
-            var g = new Grid { Height = 28 };
-            if (destaque) g.Children.Add(new Ellipse { Width = 26, Height = 26, Fill = Vermelho, HorizontalAlignment = HorizontalAlignment.Center });
-            var t = T(txt, 13, peso, cor); t.HorizontalAlignment = HorizontalAlignment.Center; t.Opacity = opac;
-            g.Children.Add(t);
-            return g;
         }
 
         // 7 colunas iguais
