@@ -72,10 +72,16 @@ namespace MacSkin
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
             barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar();
+            // mais leve: a cada minuto devolve ao Windows a memória que o .NET não está usando
+            var leve = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+            leve.Tick += delegate { GC.Collect(); GC.WaitForPendingFinalizers(); SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1)); };
+            leve.Start();
             int r = app.Run();
             GC.KeepAlive(mutex);
             return r;
         }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool SetProcessWorkingSetSize(IntPtr h, IntPtr min, IntPtr max);
 
         // reabre o Mac Skin se ele cair; não fica consultando nada, só espera o processo terminar
         static int Vigia()

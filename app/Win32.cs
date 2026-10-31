@@ -175,9 +175,9 @@ namespace MacSkin
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int a, ref int v, int n);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RECT r, int n);
         // acrylic tingido (cor AABBGGRR); o acrylic ignora recorte, mas respeita o canto redondo nativo (8 px)
-        public static void Vidro(IntPtr h, int abgr, bool redondo)
+        public static void Vidro(IntPtr h, int abgr, bool redondo, int estado = 4)
         {
-            var a = new ACCENT(); a.State = 4; a.Flags = 2; a.Color = abgr;
+            var a = new ACCENT(); a.State = estado; a.Flags = 2; a.Color = abgr;
             int n = Marshal.SizeOf(a); IntPtr p = Marshal.AllocHGlobal(n); Marshal.StructureToPtr(a, p, false);
             var d = new WCAD(); d.Attr = 19; d.Data = p; d.Size = n; SetWindowCompositionAttribute(h, ref d); Marshal.FreeHGlobal(p);
             int canto = redondo ? 2 : 1; DwmSetWindowAttribute(h, 33, ref canto, 4);

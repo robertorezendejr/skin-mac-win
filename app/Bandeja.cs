@@ -205,7 +205,9 @@ namespace MacSkin
     class PainelBandeja
     {
         const double Largura = 248;
-        readonly Window jan;
+        readonly Window jan, vidro;   // vidro: janela acrylic por trás (desfoca o fundo); jan: o conteúdo transparente por cima
+        IntPtr hVidro;
+        readonly Border aro, fundo;
         readonly WrapPanel grade;
         readonly TextBlock titulo, vazio, rapidas;
         readonly Border sep, itemRapidas;
@@ -222,9 +224,22 @@ namespace MacSkin
             jan = new Window
             {
                 Title = "Mac Skin Bandeja", WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true,
-                Background = Brushes.Transparent, Width = Largura, SizeToContent = SizeToContent.Height, Left = -10000, Top = -10000
+                AllowsTransparency = true, Background = Brushes.Transparent, Width = Largura, SizeToContent = SizeToContent.Height, Left = -10000, Top = -10000
             };
-            var pilha = new StackPanel { Margin = new Thickness(12, 10, 12, 10) };
+            vidro = new Window
+            {
+                Title = "Mac Skin Bandeja vidro", WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+                Topmost = true, Background = Brushes.Transparent, Left = -10000, Top = -10000, Width = 10, Height = 10, ShowActivated = false
+            };
+            vidro.SourceInitialized += delegate
+            {
+                hVidro = new WindowInteropHelper(vidro).Handle;
+                HwndSource.FromHwnd(hVidro).CompositionTarget.BackgroundColor = Colors.Transparent;
+                Win32.Estilo(hVidro, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
+            };
+            aro = new Border { CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(Recuo), IsHitTestVisible = false };
+            fundo = new Border { CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(1) };
+            var pilha = new StackPanel { Margin = new Thickness(16, 14, 16, 14) };
             titulo = new TextBlock { Text = "Em segundo plano", FontFamily = Fonte, FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.6, Margin = new Thickness(4, 0, 0, 6) };
             grade = new WrapPanel();
             vazio = new TextBlock { Text = "Nenhum app em segundo plano", FontFamily = Fonte, FontSize = 12, Opacity = 0.6, Margin = new Thickness(4, 2, 0, 4) };
@@ -235,14 +250,17 @@ namespace MacSkin
             itemRapidas.MouseLeave += delegate { itemRapidas.Background = Nada; };
             itemRapidas.MouseLeftButtonUp += delegate { jan.Hide(); Win32.Win(0x41); };
             pilha.Children.Add(titulo); pilha.Children.Add(grade); pilha.Children.Add(vazio); pilha.Children.Add(sep); pilha.Children.Add(itemRapidas);
-            jan.Content = pilha;
+            fundo.Child = pilha;
+            var raiz = new Grid(); raiz.Children.Add(aro); raiz.Children.Add(fundo);
+            jan.Content = raiz;
+            jan.SizeChanged += delegate { PosicionarVidro(); };
+            jan.IsVisibleChanged += delegate { if (!jan.IsVisible) vidro.Hide(); };
 
             jan.SourceInitialized += delegate
             {
                 h = new WindowInteropHelper(jan).Handle;
                 HwndSource.FromHwnd(h).CompositionTarget.BackgroundColor = Colors.Transparent;
                 Win32.Estilo(h, Win32.EX_TOOL);
-                Tema();
             };
             jan.Deactivated += delegate { if (segurando == 0) jan.Hide(); };   // clicou fora
             jan.Activated += delegate { Soltar(); };
@@ -257,10 +275,22 @@ namespace MacSkin
             if (jan.IsVisible) { Esconder(); return; }
             Bandeja.Limpar();
             Montar();
-            if (h != IntPtr.Zero) Tema();
+            vidro.Show();
+            if (jan.Owner == null) jan.Owner = vidro;   // o conteúdo fica sempre na frente do vidro
+            claro = null; Tema();
             jan.Left = Math.Max(8, Math.Min(canto.X, SystemParameters.PrimaryScreenWidth - 8) - Largura);
             jan.Top = canto.Y + 5;
-            jan.Show(); jan.Activate();
+            jan.Show(); jan.UpdateLayout(); PosicionarVidro(); jan.Activate();
+        }
+
+        const double Raio = 16, Recuo = 4;
+        void PosicionarVidro()
+        {
+            if (hVidro == IntPtr.Zero || !jan.IsVisible) return;
+            var fonte = PresentationSource.FromVisual(jan);
+            if (fonte == null) return;
+            double f = fonte.CompositionTarget.TransformToDevice.M22;
+            Win32.Mover(hVidro, (int)((jan.Left + Recuo) * f), (int)((jan.Top + Recuo) * f), (int)((jan.ActualWidth - 2 * Recuo) * f), (int)((jan.ActualHeight - 2 * Recuo) * f));
         }
 
         void Esconder() { Soltar(); jan.Hide(); }
@@ -284,7 +314,11 @@ namespace MacSkin
             bool c = Comum.TemaClaro();
             if (c == claro) return;
             claro = c;
-            Win32.Vidro(h, c ? unchecked((int)0xD0F2F2F2) : unchecked((int)0xC0262626), true);
+            // mesmo vidro do volume e dos menus: acrylic leve por trás, brilho no alto e borda de luz
+            Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true);
+            aro.BorderBrush = Comum.Cor(c ? "#8CEDEDEF" : "#8C3A3A3E");
+            fundo.Background = c ? Comum.Degrade("#55FFFFFF", "#14FFFFFF") : Comum.Degrade("#40FFFFFF", "#0EFFFFFF");
+            fundo.BorderBrush = c ? Comum.Degrade("#F2FFFFFF", "#66FFFFFF") : Comum.Degrade("#B3FFFFFF", "#33FFFFFF");
             texto = c ? Comum.Cor("#E6000000") : Brushes.White;
             sobre = c ? Comum.Cor("#1A000000") : Comum.Cor("#26FFFFFF");
             jan.Foreground = texto;

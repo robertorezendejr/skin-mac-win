@@ -61,27 +61,29 @@ namespace MacSkin
         static ResourceDictionary recursos;
         static Window vidro; static IntPtr hVidro;
         static bool? claro;
+        static ContextMenu ativo;
 
         [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr depois, int x, int y, int w, int hh, uint f);
 
         // aplica o visual de vidro e a posição acima do alvo (centrado no ícone, ou no cursor quando é o fundo da dock)
         // abaixo: menu que abre para baixo do alvo (barra de menus), alinhado à esquerda dele
-        public static void Aplicar(ContextMenu m, bool centrarNoAlvo, bool abaixo = false)
+        public static void Aplicar(ContextMenu m, bool centrarNoAlvo, bool abaixo = false, bool direita = false)
         {
             m.Resources = Recursos();
             m.Placement = PlacementMode.Custom;
             m.CustomPopupPlacementCallback = (popup, alvo, desloc) =>
             {
-                if (abaixo) return new[] { new CustomPopupPlacement(new Point(0, alvo.Height + 2), PopupPrimaryAxis.None) };
+                if (abaixo) return new[] { new CustomPopupPlacement(new Point(direita ? alvo.Width - popup.Width : 0, alvo.Height + 2), PopupPrimaryAxis.None) };
                 double x = centrarNoAlvo ? (alvo.Width - popup.Width) / 2 : Mouse.GetPosition(m.PlacementTarget).X - popup.Width / 2;
                 return new[] { new CustomPopupPlacement(new Point(x, -popup.Height - Acima), PopupPrimaryAxis.None) };
             };
             m.Opened += delegate
             {
+                ativo = m;
                 Tema();
                 m.Dispatcher.BeginInvoke(new Action(() => MostrarVidro(m, abaixo)), DispatcherPriority.Loaded);
             };
-            m.Closed += delegate { if (vidro != null) vidro.Hide(); };
+            m.Closed += delegate { if (ativo == m) { ativo = null; if (vidro != null) vidro.Hide(); } };   // outro menu já pode ter aberto
         }
 
         static ResourceDictionary Recursos()
@@ -104,6 +106,9 @@ namespace MacSkin
             recursos["MvSep"] = Comum.Cor(c ? "#33000000" : "#40FFFFFF");
             if (hVidro != IntPtr.Zero) Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true);
         }
+
+        // reencaixa o vidro no menu já com o tamanho final (depois de reabrir)
+        public static void Reposicionar(ContextMenu m) { MostrarVidro(m, true); }
 
         static void MostrarVidro(ContextMenu m, bool abaixo)
         {

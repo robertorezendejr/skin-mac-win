@@ -77,14 +77,14 @@ namespace MacSkin
             aro = new Border { Width = L, Height = A, CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(Recuo), IsHitTestVisible = false };
 
             titulo = new TextBlock { FontFamily = Fonte, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 11, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = Trilho + 44 };
-            iconeEsq = new TextBlock { Text = ((char)0xE992).ToString(), FontFamily = Icones, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
-            iconeDir = new TextBlock { FontFamily = Icones, FontSize = 15, VerticalAlignment = VerticalAlignment.Center };
-            pista = new Border { Height = 6, CornerRadius = new CornerRadius(3) };
-            nivel = new Border { Height = 6, CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
-            var trilho = new Grid { Width = Trilho, Height = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
+            iconeEsq = new TextBlock { Text = ((char)0xE992).ToString(), FontFamily = Icones, FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+            iconeDir = new TextBlock { FontFamily = Icones, FontSize = 17, VerticalAlignment = VerticalAlignment.Center };
+            pista = new Border { Height = 8, CornerRadius = new CornerRadius(4) };
+            nivel = new Border { Height = 8, CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+            var trilho = new Grid { Width = Trilho, Height = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
             trilho.Children.Add(pista); trilho.Children.Add(nivel);
             // marcas pontilhadas sob a barra, como no Mac
-            marcas = new Canvas { Width = Trilho, Height = 1, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -10) };
+            marcas = new Canvas { Width = Trilho, Height = 1, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -12) };
             for (int i = 0; i <= 16; i++)
             {
                 var d = new System.Windows.Shapes.Ellipse { Width = 2, Height = 2 };
@@ -140,6 +140,16 @@ namespace MacSkin
             ep = novo; epId = id; epNome = NomeDe(dev);
             float vol; bool mu; ep.GetMasterVolumeLevelScalar(out vol); ep.GetMute(out mu);
             ultimo = vol; mudo = mu;
+            Publicar(vol, mu);
+        }
+
+        // estado atual para o ícone da barra de menus (sempre na thread da interface)
+        public static float Nivel = 1; public static bool Silenciado;
+        public static event Action Alterou;
+        static void Publicar(float v, bool m)
+        {
+            Nivel = v; Silenciado = m;
+            var a = Alterou; if (a != null) a();
         }
 
         void Desligar()
@@ -210,6 +220,7 @@ namespace MacSkin
         {
             bool igual = Math.Abs(v - ultimo) < 0.0005f && mudo == m;
             ultimo = v; mudo = m;
+            Publicar(v, m);
             if (igual) return;
             try { Exibir(v, m); }
             catch (Exception e) { Log("exibir: " + e.Message); }

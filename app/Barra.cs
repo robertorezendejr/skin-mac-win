@@ -36,10 +36,22 @@ namespace MacSkin
         TextBlock appAtivo, relogio, wifi, batTxt;
         Border batNivel, itemBat, central;
         Path batRaio;
-        ContextMenu menuSis;
+        ContextMenu menuSis, menuWifi, menuBt, menuCal;
         readonly Dictionary<uint, string> nomes = new Dictionary<uint, string>();
         int wifiGlifo = 0xE701;
-        Canvas wifiDesenho; Path[] wifiPecas;
+        Canvas wifiDesenho; Path[] wifiPecas, volPecas; Path wifiSem, volMudo;
+
+        void AtualizarVolume()
+        {
+            bool sem = Volume.Silenciado || Volume.Nivel <= 0.001f;
+            int acesos = sem ? 0 : Math.Max(1, (int)Math.Ceiling(Volume.Nivel * 3 - 0.0001));
+            for (int i = 0; i < 3; i++)
+            {
+                volPecas[i].Visibility = sem ? Visibility.Collapsed : Visibility.Visible;
+                volPecas[i].Opacity = i < acesos ? 1 : 0.35;
+            }
+            volMudo.Visibility = sem ? Visibility.Visible : Visibility.Collapsed;
+        }
 
         static void Log(string m) { Comum.Log("barra.log", m); }
 
@@ -87,10 +99,20 @@ namespace MacSkin
             // ---------- direita (na ordem do Mac) ----------
             // volume do Mac: alto-falante cheio e dois arcos grossos de pontas redondas
             // arcos centrados em (8;6,5), raios 3,6 e 7,2: o mesmo espaço entre eles
-            var volDesenho = new Canvas { Width = 17, Height = 13, VerticalAlignment = VerticalAlignment.Center };
-            volDesenho.Children.Add(PecaWifi("M1.5,4.8 H4.2 L8,1.6 V11.4 L4.2,8.2 H1.5 Z", true));
-            volDesenho.Children.Add(PecaWifi("M10.55,3.95 A3.6,3.6 0 0 1 10.55,9.05", false));
-            volDesenho.Children.Add(PecaWifi("M13.09,1.41 A7.2,7.2 0 0 1 13.09,11.59", false));
+            // 4 níveis: alto-falante + 3 arcos (centro 8;7,5, raios 3,4 / 6,8 / 10,2); mudo ou zero: alto-falante com "x"
+            var volDesenho = new Canvas { Width = 18, Height = 15, VerticalAlignment = VerticalAlignment.Center };
+            volDesenho.Children.Add(PecaWifi("M1.5,5.8 H4.2 L8,2.6 V12.4 L4.2,9.2 H1.5 Z", true));
+            volPecas = new[]
+            {
+                PecaWifi("M10.6,5.31 A3.4,3.4 0 0 1 10.6,9.69", false),
+                PecaWifi("M13.21,3.13 A6.8,6.8 0 0 1 13.21,11.87", false),
+                PecaWifi("M15.81,0.94 A10.2,10.2 0 0 1 15.81,14.06", false)
+            };
+            foreach (var p in volPecas) volDesenho.Children.Add(p);
+            volMudo = PecaWifi("M11.2,5.6 L15.6,9.4 M15.6,5.6 L11.2,9.4", false);
+            volMudo.StrokeThickness = 1.6;
+            volDesenho.Children.Add(volMudo);
+            Volume.Alterou += AtualizarVolume; AtualizarVolume();
             Item(dir, volDesenho, s => Win32.Win(0x41));    // volume
             wifi = Glifo(0xE701, 15);   // só para cabo / sem rede; o Wi-Fi é desenhado abaixo
             // Wi-Fi do Mac: cunha embaixo e dois arcos grossos de pontas redondas; o que passa do sinal fica apagado
@@ -103,8 +125,12 @@ namespace MacSkin
                 PecaWifi("M1.52,4.92 A12,12 0 0 1 18.48,4.92", false)
             };
             foreach (var p in wifiPecas) wifiDesenho.Children.Add(p);
+            wifiSem = PecaWifi("M3,1.5 L17,13", false);   // risco de "sem Wi-Fi"
+            wifiSem.StrokeThickness = 1.8;
+            wifiDesenho.Children.Add(wifiSem);
             var wifiBox = new Grid(); wifiBox.Children.Add(wifiDesenho); wifiBox.Children.Add(wifi);
-            Item(dir, wifiBox, s => Win32.Win(0x41));
+            menuWifi = Popover.Criar(Janela, () => hwnd, Popover.Wifi);
+            Item(dir, wifiBox, s => Popover.Abrir(menuWifi, s, menuBt, menuCal));
             // bateria do Mac: pílula branca que enche com a carga, número dentro e o "pino" à direita
             var corpo = new Grid { Width = 25, Height = 12, VerticalAlignment = VerticalAlignment.Center };
             corpo.Children.Add(new Border { CornerRadius = new CornerRadius(3.5), Background = Comum.Cor("#59FFFFFF") });
@@ -120,7 +146,8 @@ namespace MacSkin
             // Bluetooth em traço grosso de pontas redondas, no mesmo peso dos arcos do volume e do Wi-Fi
             var bt = Desenho("M0.5,3.8 L7.5,10.2 L4,13.2 V0.8 L7.5,3.8 L0.5,10.2", 9, 15, false);
             bt.StrokeThickness = 2.2; bt.StrokeStartLineCap = PenLineCap.Round; bt.StrokeEndLineCap = PenLineCap.Round; bt.StrokeLineJoin = PenLineJoin.Round;
-            Item(dir, bt, s => Abrir("ms-settings:bluetooth"));
+            menuBt = Popover.Criar(Janela, () => hwnd, Popover.Bluetooth);
+            Item(dir, bt, s => Popover.Abrir(menuBt, s, menuWifi, menuCal));
             // Central de Controle: dois interruptores; abre a caixa dos apps em segundo plano (a bandeja do Windows)
             var painel = new PainelBandeja();
             // como no Mac: o de cima é contorno com a bolinha branca; o de baixo é pílula branca cheia com a bolinha escura
@@ -137,7 +164,8 @@ namespace MacSkin
                 return new Win32.RECT { L = (int)a.X, T = (int)a.Y, R = (int)z.X, B = (int)z.Y };
             };
             relogio = Rotulo("", FontWeights.Medium);
-            Item(dir, relogio, s => Win32.Win(0x4E));
+            menuCal = Popover.Criar(Janela, () => hwnd, Popover.Calendario);
+            Item(dir, relogio, s => Popover.Abrir(menuCal, s, menuWifi, menuBt));
 
             Janela.SourceInitialized += delegate
             {
@@ -157,8 +185,10 @@ namespace MacSkin
             // Wi-Fi a cada 15 s, numa thread à parte (o netsh leva ~0,1 s e não pode travar a barra)
             var t2 = new Timer(delegate { LerWifi(); }, null, 0, 15000);
             GC.KeepAlive(t2); timerWifi = t2;
+            // trocou de rede ou o Wi-Fi caiu: atualiza o ícone na hora, sem esperar os 15 s
+            NetworkChange.NetworkAddressChanged += delegate { ThreadPool.QueueUserWorkItem(_ => LerWifi()); };
         }
-        Timer timerWifi;
+        Timer timerWifi; bool netshOk = true; int tentativas;
 
         public void Mostrar() { Janela.Show(); Log("barra aberta"); }
         public void Fechar() { if (hwnd != IntPtr.Zero) { Win32.Liberar(hwnd); hwnd = IntPtr.Zero; } }
@@ -240,10 +270,9 @@ namespace MacSkin
                 else itemBat.Visibility = Visibility.Collapsed;   // sem bateria (desktop)
 
                 int forca = wifiGlifo == 0xE701 ? 3 : wifiGlifo == 0xE874 ? 2 : wifiGlifo == 0xE873 ? 1 : wifiGlifo == 0xE872 ? 0 : -1;
-                wifiDesenho.Visibility = forca >= 0 ? Visibility.Visible : Visibility.Collapsed;
-                wifi.Visibility = forca >= 0 ? Visibility.Collapsed : Visibility.Visible;
-                if (forca >= 0) for (int i = 0; i < 3; i++) wifiPecas[i].Opacity = i <= forca - 1 || i == 0 ? 1 : 0.35;
-                else wifi.Text = ((char)wifiGlifo).ToString();
+                wifi.Visibility = Visibility.Collapsed;
+                wifiSem.Visibility = forca >= 0 ? Visibility.Collapsed : Visibility.Visible;   // sem Wi-Fi: ícone apagado com risco
+                for (int i = 0; i < 3; i++) wifiPecas[i].Opacity = forca < 0 ? 0.35 : i <= forca - 1 || i == 0 ? 1 : 0.35;
                 Janela.Visibility = Win32.TelaCheia(hwnd, telaW, telaH) ? Visibility.Hidden : Visibility.Visible;
             }
             catch (Exception ex) { Log("rápido: " + ex.Message); }
@@ -258,20 +287,19 @@ namespace MacSkin
                     wifiGlifo = NetworkInterface.GetIsNetworkAvailable() ? 0xE839 : 0xF384;   // cabo / sem rede
                     return;
                 }
+                // o netsh só dá o sinal com a Localização ligada no Windows; sem ela, para de chamá-lo (volta a tentar de vez em quando)
+                if (!netshOk && ++tentativas % 20 != 0) { wifiGlifo = 0xE701; return; }
                 var psi = new ProcessStartInfo("netsh.exe", "wlan show interfaces") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
                 string saida;
                 using (var p = Process.Start(psi)) { saida = p.StandardOutput.ReadToEnd(); p.WaitForExit(3000); }
                 var m = Regex.Match(saida, @"^\s*(Sinal|Signal)\s*:\s*(\d+)%", RegexOptions.Multiline);
+                netshOk = m.Success;
                 if (m.Success)
                 {
                     int pct = int.Parse(m.Groups[2].Value);
                     wifiGlifo = pct >= 75 ? 0xE701 : pct >= 50 ? 0xE874 : pct >= 25 ? 0xE873 : 0xE872;
                 }
-                // o netsh só mostra o sinal com a Localização ligada no Windows; sem ela, um Wi-Fi conectado
-                // ainda aparece aqui, só que sem a força do sinal (fica cheio)
-                else if (NetworkInterface.GetAllNetworkInterfaces().Any(n => n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && n.OperationalStatus == OperationalStatus.Up))
-                    wifiGlifo = 0xE701;
-                else wifiGlifo = NetworkInterface.GetIsNetworkAvailable() ? 0xE839 : 0xF384;   // cabo / sem rede
+                else wifiGlifo = 0xE701;   // conectado, só que sem a força do sinal (fica cheio)
             }
             catch (Exception ex) { Log("wifi: " + ex.Message); }
         }
