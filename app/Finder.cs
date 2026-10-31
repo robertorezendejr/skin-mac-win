@@ -101,6 +101,18 @@ namespace MacSkin
 
         static void Log(string m) { Comum.Log("finder.log", m); }
 
+        // modo escolha (caixa de abrir/salvar de outro programa, ver Escolha.cs): quem escolhe decide o que o duplo clique
+        // em arquivo faz (devolve true se tratou) e é avisado quando a pasta ou a seleção mudam
+        public Func<List<Entrada>, bool> AoAbrir;
+        public event Action Mudou;
+        public Window Janela { get { return w; } }
+        public string Atual { get { return atual; } }
+        public bool PreviaAberta { get { return previa != null && previa.Aberta; } }
+        public List<Entrada> Selecao() { return Selecionados().ToList(); }
+        public static bool EhVirtual(string p) { return Virtual(p); }
+        public void Entrar(string pasta) { Navegar(pasta, true); }
+        void AvisarMudou() { var m = Mudou; if (m != null) m(); }
+
         string selecionarDepois;   // arquivo a selecionar quando a pasta terminar de carregar (vem do /select do Explorador)
 
         public Finder(string inicial, string selecionar = null)
@@ -174,6 +186,7 @@ namespace MacSkin
                 {
                     AtualizarStatusSelecao();
                     if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault());
+                    AvisarMudou();
                 };
                 c.PreviewMouseLeftButtonDown += AoPressar;
                 c.PreviewMouseMove += AoMoverLaco;
@@ -568,6 +581,7 @@ namespace MacSkin
             ativa.Pos = pos; MontarAbas();
             MarcarLateral(); MontarCaminho(); Vigiar();
             Carregar(destino, false);
+            AvisarMudou();
         }
 
         static string NomePasta(string p)
@@ -1075,11 +1089,59 @@ namespace MacSkin
                 return;
             }
             if (sel.Count == 1 && sel[0].EhPasta) { Navegar(sel[0].Caminho, true); return; }
+            if (AoAbrir != null && AoAbrir(sel)) return;
             foreach (var e in sel)
             {
-                try { if (e.EhPasta) NovaJanela(e.Caminho); else Process.Start(e.Caminho); }
+                try { if (e.EhPasta) NovaJanela(e.Caminho); else if (EhZip(e.Caminho)) Descompactar(e.Caminho); else Process.Start(e.Caminho); }
                 catch (Exception ex) { Log("abrir " + e.Caminho + ": " + ex.Message); }
             }
+        }
+
+        public static bool EhZip(string p) { return p.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && File.Exists(p); }
+
+        // zip, como no Utilitário de Compressão do Mac: abrir descompacta numa pasta ao lado, com o nome do zip ("nome 2"
+        // se já existir), e a deixa selecionada. Se o zip tiver uma pasta só dentro, ela mesma vem para fora.
+        public void Descompactar(string zip)
+        {
+            string pai = System.IO.Path.GetDirectoryName(zip), nome = System.IO.Path.GetFileNameWithoutExtension(zip);
+            Func<string, string> livre = n =>
+            {
+                string d = System.IO.Path.Combine(pai, n);
+                for (int i = 2; Directory.Exists(d) || File.Exists(d); i++) d = System.IO.Path.Combine(pai, n + " " + i);
+                return d;
+            };
+            string destino = livre(nome);
+            statusSelecao.Text = "Descompactando " + System.IO.Path.GetFileName(zip) + "…";
+            Task.Factory.StartNew(() =>
+            {
+                // nomes sem a marca UTF-8 vêm na página de código do DOS, como o Explorador grava (850 no Brasil)
+                var enc = System.Text.Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage);
+                System.IO.Compression.ZipFile.ExtractToDirectory(zip, destino, enc);
+                var dentro = Directory.GetFileSystemEntries(destino);
+                if (dentro.Length == 1 && Directory.Exists(dentro[0]))
+                {
+                    string unica = System.IO.Path.GetFileName(dentro[0]), temp = destino + ".tmp-macskin";
+                    Directory.Move(destino, temp);
+                    string final = livre(unica);
+                    Directory.Move(System.IO.Path.Combine(temp, unica), final);
+                    Directory.Delete(temp);
+                    return final;
+                }
+                return destino;
+            }).ContinueWith(t =>
+            {
+                if (t.Exception != null)
+                {
+                    var erro = t.Exception.GetBaseException();
+                    Log("descompactar " + zip + ": " + erro.Message);
+                    try { if (Directory.Exists(destino)) Directory.Delete(destino, true); } catch { }
+                    AtualizarStatusSelecao();
+                    MessageBox.Show(w, "Não foi possível descompactar “" + System.IO.Path.GetFileName(zip) + "”.\n" + erro.Message, "Finder");
+                    return;
+                }
+                selecionarDepois = t.Result;
+                if (string.Equals(atual, pai, StringComparison.OrdinalIgnoreCase)) Carregar(atual, false); else Navegar(pai, true);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         // Visualização Rápida (Espaço), como o Quick Look do Mac

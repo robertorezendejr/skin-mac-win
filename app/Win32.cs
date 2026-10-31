@@ -117,7 +117,28 @@ namespace MacSkin
         }
         public static void PararOsd() { if (gOsd1 != IntPtr.Zero) UnhookWinEvent(gOsd1); if (gOsd2 != IntPtr.Zero) UnhookWinEvent(gOsd2); gOsd1 = gOsd2 = IntPtr.Zero; }
         public static void Esconder(IntPtr h) { ShowWindow(h, 0); }
-        public static void MostrarSemAtivar(IntPtr h) { ShowWindow(h, 8); }
+        public static void MostrarSemAtivar(IntPtr h) { Opaca(h); ShowWindow(h, 8); }
+
+        // janela de outro programa 100% transparente desde a criação: o aviso de "apareceu" (EVENT_OBJECT_SHOW) chega
+        // atrasado e, só escondendo ali, ela piscava na tela. Opaca desfaz (só nas que foram deixadas invisíveis aqui).
+        [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint cor, byte alfa, uint flags);
+        static readonly HashSet<IntPtr> invisiveis = new HashSet<IntPtr>();
+        public static void Invisivel(IntPtr h)
+        {
+            lock (invisiveis)
+            {
+                if ((GetWindowLong(h, -20) & 0x80000) != 0 || !invisiveis.Add(h)) return;   // já em camadas (WS_EX_LAYERED): não mexe
+                if (invisiveis.Count > 200) invisiveis.Clear();
+            }
+            SetWindowLong(h, -20, GetWindowLong(h, -20) | 0x80000);
+            SetLayeredWindowAttributes(h, 0, 0, 2);   // LWA_ALPHA = 0
+        }
+        public static void Opaca(IntPtr h)
+        {
+            lock (invisiveis) if (!invisiveis.Remove(h)) return;
+            SetLayeredWindowAttributes(h, 0, 255, 2);
+            SetWindowLong(h, -20, GetWindowLong(h, -20) & ~0x80000);
+        }
 
         // indicador de volume do Windows 11: janela larga e transparente do Explorer (ilha XAML), que não ativa.
         // Se o Explorer está com o foco (Win+A, Iniciar), o painel é do usuário e fica.

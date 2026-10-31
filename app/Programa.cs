@@ -2,6 +2,8 @@
 //   MacSkin.exe           abre dock + barra + botões (uma instância só)
 //   MacSkin.exe --vigia   abre o de cima e reabre se ele cair (é o que roda no login)
 //   MacSkin.exe --finder [pasta]   abre uma janela do Finder
+//   MacSkin.exe --descompactar arquivo.zip   descompacta ao lado e mostra no Finder (zip aberto no Explorador)
+//   MacSkin.exe --escolher hwnd    troca a caixa Abrir/Salvar/Selecionar pasta de outro programa pelo Finder
 // "Desligar Mac Skin" cria o arquivo "desligado" na pasta e fecha tudo; o vigia respeita.
 using System;
 using System.Diagnostics;
@@ -21,6 +23,8 @@ namespace MacSkin
         {
             if (args.Length > 0 && args[0] == "--vigia") return Vigia();
             if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null, null, args.Length > 2 ? args[2] : null);
+            if (args.Length > 1 && args[0] == "--descompactar") return AbrirFinder(Path.GetDirectoryName(args[1]), null, null, args[1]);
+            if (args.Length > 1 && args[0] == "--escolher") return Escolha.Abrir(new IntPtr(long.Parse(args[1])));
             if (args.Length > 2 && args[0] == "--medir-finder") return AbrirFinder(args[1], args[2]);
             if (args.Length > 0 && args[0] == "--janelas")   // diagnóstico: o que a dock enxerga como app aberto
             {
@@ -33,13 +37,13 @@ namespace MacSkin
         }
 
         // cada janela do Finder é um processo à parte: se uma travar numa pasta de rede, as outras e a dock seguem
-        static int AbrirFinder(string pasta, string medirEm = null, string selecionar = null)
+        static int AbrirFinder(string pasta, string medirEm = null, string selecionar = null, string descompactar = null)
         {
             var app = new Application { ShutdownMode = ShutdownMode.OnLastWindowClose };
             app.DispatcherUnhandledException += (s, e) => { Comum.Log("finder.log", "falha: " + e.Exception); e.Handled = true; };
             // a leitura da pasta (Task) devolve o resultado para a tela por este contexto; sem ele, só existiria após o Run
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
-            try { var f = new Finder(pasta, selecionar); f.Mostrar(); if (medirEm != null) f.Medir(medirEm); }
+            try { var f = new Finder(pasta, selecionar); f.Mostrar(); if (medirEm != null) f.Medir(medirEm); if (descompactar != null) f.Descompactar(descompactar); }
             catch (Exception e) { Comum.Log("finder.log", "não abriu: " + e); return 1; }
             return app.Run();
         }
@@ -66,12 +70,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Escolha.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Substituicao.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar();
             // mais leve: a cada minuto devolve ao Windows a memória que o .NET não está usando
             var leve = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
             leve.Tick += delegate { GC.Collect(); GC.WaitForPendingFinalizers(); SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1)); };

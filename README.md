@@ -49,6 +49,14 @@ Depois copia tudo para `%LOCALAPPDATA%\MacSkin`, cria os atalhos no Iniciar e ap
 
 [barra.ps1](instalador/barra.ps1) é a barra de cima, como no Mac: menu do sistema (Sobre, Configurações, Bloquear, Suspender, Reiniciar, Desligar), nome do app ativo, bateria, Wi-Fi, volume e relógio. Wi-Fi e volume abrem as configurações rápidas (Win+A); o relógio abre notificações e calendário (Win+N). O ícone da Central de Controle (os dois interruptores) abre a caixa dos apps em segundo plano, a mesma da setinha da bandeja do Windows: clique e botão direito funcionam como lá (o "Sair do Teams", por exemplo).
 
+### Arquivos .zip
+
+Como no Mac, abrir um `.zip` (duplo clique no Finder ou qualquer programa que abra o zip no Explorador) descompacta numa pasta ao lado, com o nome do zip, e a mostra selecionada no Finder. Se o zip tiver uma pasta só dentro, ela vem direto, sem pasta extra.
+
+### Abrir, salvar e escolher pasta
+
+As caixas "Abrir", "Salvar como" e "Selecionar pasta" dos programas (Antigravity, VS Code, Edge, Office...) viram o Finder, com uma barra embaixo para escolher, cancelar ou voltar à caixa do Windows. O caminho escolhido é devolvido à caixa original, então o programa recebe a resposta normalmente ([Escolha.cs](app/Escolha.cs)). Para desligar a troca, crie o arquivo `caixas-nativas` em `%LOCALAPPDATA%\MacSkin`; o log fica em `escolha.log`.
+
 [vigia.ps1](instalador/vigia.ps1) abre a dock e a barra a cada login e reabre o que fechar. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
 
 ### Tema

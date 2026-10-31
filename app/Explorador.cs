@@ -19,7 +19,7 @@ namespace MacSkin
         [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint de, uint ate, IntPtr mod, WinEventProc p, uint pid, uint tid, uint flags);
         [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr g);
 
-        static WinEventProc proc; static IntPtr g1, g2;
+        static WinEventProc proc; static IntPtr g1, g2, g3;
         static readonly HashSet<IntPtr> tratadas = new HashSet<IntPtr>();
         static readonly string Liberado = Path.Combine(Comum.Dir, "explorador-liberado");
 
@@ -42,6 +42,8 @@ namespace MacSkin
                 try
                 {
                     if (Win32.Classe(h) != "CabinetWClass" || EstaLiberado()) return;
+                    // criada: já fica invisível (o aviso de "apareceu" chega atrasado e ela piscava na tela)
+                    if (ev == 0x8000) { Win32.Invisivel(h); return; }
                     lock (tratadas) { if (!tratadas.Add(h)) return; if (tratadas.Count > 200) tratadas.Clear(); }
                     Win32.Esconder(h);   // some antes de aparecer; se não for pasta de verdade, volta
                     var th = new Thread(() => Trocar(h)); th.SetApartmentState(ApartmentState.STA); th.IsBackground = true; th.Start();
@@ -50,12 +52,13 @@ namespace MacSkin
             };
             g1 = SetWinEventHook(0x8002, 0x8002, IntPtr.Zero, proc, 0, 0, 2);   // EVENT_OBJECT_SHOW
             g2 = SetWinEventHook(0x8018, 0x8018, IntPtr.Zero, proc, 0, 0, 2);   // EVENT_OBJECT_UNCLOAKED
+            g3 = SetWinEventHook(0x8000, 0x8000, IntPtr.Zero, proc, 0, 0, 2);   // EVENT_OBJECT_CREATE
         }
 
         public static void Parar()
         {
-            foreach (var g in new[] { g1, g2 }) if (g != IntPtr.Zero) UnhookWinEvent(g);
-            g1 = g2 = IntPtr.Zero;
+            foreach (var g in new[] { g1, g2, g3 }) if (g != IntPtr.Zero) UnhookWinEvent(g);
+            g1 = g2 = g3 = IntPtr.Zero;
         }
 
         static void Trocar(IntPtr h)
@@ -66,6 +69,15 @@ namespace MacSkin
                 Lugar(h, out pasta, out arquivo);
                 if (pasta == null) Thread.Sleep(100);
             }
+            string zip = pasta == null ? null : ZipDe(pasta);
+            if (zip != null)
+            {
+                // zip aberto no Explorador: como no Mac, o Finder descompacta ao lado e mostra a pasta
+                Win32.PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero);   // WM_CLOSE
+                Log("descompactar: " + zip);
+                try { Process.Start(Process.GetCurrentProcess().MainModule.FileName, "--descompactar \"" + zip + "\""); } catch (Exception e) { Log("não abriu: " + e.Message); }
+                return;
+            }
             if (pasta == null || !Directory.Exists(pasta)) { Log("mantido no Explorador: " + (pasta ?? "sem pasta")); Win32.MostrarSemAtivar(h); return; }
             // o /select preenche o foco um instante depois do caminho
             for (int i = 0; i < 5 && arquivo == null; i++) { Thread.Sleep(100); string p; Lugar(h, out p, out arquivo); }
@@ -73,6 +85,19 @@ namespace MacSkin
             string args = "--finder \"" + (pasta.EndsWith("\\") ? pasta + "\\" : pasta) + "\"" + (arquivo == null ? "" : " \"" + arquivo + "\"");
             Log("Finder: " + args);
             try { Process.Start(Process.GetCurrentProcess().MainModule.FileName, args); } catch (Exception e) { Log("não abriu: " + e.Message); }
+        }
+
+        // "C:\...\x.zip" ou uma pasta dentro dele ("C:\...\x.zip\sub"): o caminho do zip; null se não for zip
+        static string ZipDe(string p)
+        {
+            int i = p.IndexOf(".zip", StringComparison.OrdinalIgnoreCase);
+            while (i >= 0)
+            {
+                int fim = i + 4;
+                if (fim == p.Length || p[fim] == System.IO.Path.DirectorySeparatorChar) { string z = p.Substring(0, fim); if (File.Exists(z)) return z; }
+                i = p.IndexOf(".zip", fim, StringComparison.OrdinalIgnoreCase);
+            }
+            return null;
         }
 
         static object Ler(object o, string nome, params object[] a)
