@@ -57,6 +57,10 @@ Como no Mac, abrir um `.zip` (duplo clique no Finder ou qualquer programa que ab
 
 As caixas "Abrir", "Salvar como" e "Selecionar pasta" dos programas (Antigravity, VS Code, Edge, Office...) viram o Finder, com uma barra embaixo para escolher, cancelar ou voltar à caixa do Windows. O caminho escolhido é devolvido à caixa original, então o programa recebe a resposta normalmente ([Escolha.cs](app/Escolha.cs)). Para desligar a troca, crie o arquivo `caixas-nativas` em `%LOCALAPPDATA%\MacSkin`; o log fica em `escolha.log`.
 
+### Arrastar com 3 dedos
+
+Como no Mac: encoste 3 dedos no touchpad de precisão e deslize para mover janelas, arrastar arquivos e selecionar texto, sem apertar o touchpad. Ao tirar os dedos há 300 ms de tolerância: recolocando os 3 dedos nesse tempo, o mesmo arrasto continua. Tocar com 3 dedos sem mover não faz nada ([Arrastar3Dedos.cs](app/Arrastar3Dedos.cs)). Roda numa thread própria do Mac Skin, então o programa avulso Arrastar3dedos não deve rodar junto (o `instalar.cmd` o encerra e tira do início com o Windows). Em *Configurações › Bluetooth e dispositivos › Touchpad*, deixe "Passar o dedo" e "Toques" de 3 dedos em *Nada*. Para ajustar, crie `arrastar3dedos.txt` em `%LOCALAPPDATA%\MacSkin` com as linhas `velocidade=1.5`, `tolerancia=300` ou `desligado`; o log fica em `arrastar3dedos.log`.
+
 [vigia.ps1](instalador/vigia.ps1) abre a dock e a barra a cada login e reabre o que fechar. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
 
 ### Tema
