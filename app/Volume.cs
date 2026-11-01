@@ -64,8 +64,8 @@ namespace MacSkin
             };
             janela.SourceInitialized += delegate
             {
-                var hj = new WindowInteropHelper(janela).Handle;
-                Win32.Estilo(hj, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
+                hJanela = new WindowInteropHelper(janela).Handle;
+                Win32.Estilo(hJanela, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
             };
 
             var raiz = new Grid();
@@ -82,6 +82,7 @@ namespace MacSkin
             pista = new Border { Height = 8, CornerRadius = new CornerRadius(4) };
             nivel = new Border { Height = 8, CornerRadius = new CornerRadius(4), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
             var trilho = new Grid { Width = Trilho, Height = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 10, 0) };
+            trilhoG = trilho;
             trilho.Children.Add(pista); trilho.Children.Add(nivel);
             // marcas pontilhadas sob a barra, como no Mac
             marcas = new Canvas { Width = Trilho, Height = 1, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, -12) };
@@ -103,6 +104,21 @@ namespace MacSkin
             raiz.Children.Add(cartao);
             janela.Content = raiz;
 
+            // modo interativo (aberto pelo clique na barra): clicar ou arrastar na barra muda o volume
+            fundo.MouseLeftButtonDown += (s, e) =>
+            {
+                if (!interativo) return;
+                var p = e.GetPosition(trilhoG);
+                if (p.Y < -16 || p.Y > 24 || p.X < -16 || p.X > Trilho + 16) return;
+                arrastando = true; fundo.CaptureMouse(); AjustarPor(e); e.Handled = true;
+            };
+            fundo.MouseMove += (s, e) => { if (arrastando) AjustarPor(e); };
+            fundo.MouseLeftButtonUp += (s, e) => { if (arrastando) { arrastando = false; fundo.ReleaseMouseCapture(); } };
+            fundo.LostMouseCapture += delegate { arrastando = false; };
+            cliqueForaT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+            cliqueForaT.Tick += delegate { VigiarCliqueFora(); };
+            atual = this;
+
             escondeT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
             escondeT.Tick += delegate { escondeT.Stop(); Esconder(); };
             nativoT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
@@ -111,6 +127,75 @@ namespace MacSkin
             dispositivoT.Tick += delegate { ConferirDispositivo(); };
         }
         Border pista; Canvas marcas;
+        Grid trilhoG; IntPtr hJanela;
+        bool interativo, arrastando;
+        DispatcherTimer cliqueForaT;
+        int fechouEm = Environment.TickCount - 100000;
+        static Volume atual;
+
+        [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+
+        // clique no ícone de volume da barra: abre o cartão para mexer com o mouse; de novo (ou clicando fora) fecha
+        public static void Alternar() { if (atual != null) atual.AlternarInterno(); }
+
+        void AlternarInterno()
+        {
+            if (interativo) { Fechar(); return; }
+            // clicar no ícone com o cartão aberto: o clique fora já fechou (no botão para baixo) e logo chega aqui; não reabre
+            if (Environment.TickCount - fechouEm < 400) return;
+            try
+            {
+                interativo = true;
+                Exibir(ultimo < 0 ? Nivel : ultimo, mudo ?? Silenciado);
+                Win32.SemEstilo(hJanela, Win32.EX_TRANSPARENT);
+                escondeT.Stop();
+                cliqueForaT.Start();
+            }
+            catch (Exception e) { Log("abrir: " + e.Message); SairInterativo(); }
+        }
+
+        void SairInterativo()
+        {
+            interativo = false; arrastando = false;
+            cliqueForaT.Stop();
+            try { fundo.ReleaseMouseCapture(); } catch { }
+            if (hJanela != IntPtr.Zero) Win32.Estilo(hJanela, Win32.EX_TRANSPARENT);
+        }
+
+        void Fechar()
+        {
+            fechouEm = Environment.TickCount;
+            SairInterativo();
+            Esconder();
+        }
+
+        void VigiarCliqueFora()
+        {
+            if ((GetAsyncKeyState(1) & 0x8000) == 0 && (GetAsyncKeyState(2) & 0x8000) == 0) return;
+            if (arrastando) return;
+            Win32.POINT p; Win32.GetCursorPos(out p);
+            var a = fundo.PointToScreen(new Point(0, 0));
+            if (p.X >= a.X && p.X <= a.X + L * f && p.Y >= a.Y && p.Y <= a.Y + A * f) return;   // clicou dentro do cartão
+            Fechar();
+        }
+
+        // posição do mouse na barra (0 a 1) vira volume
+        void AjustarPor(System.Windows.Input.MouseEventArgs e)
+        {
+            if (ep == null) return;
+            float v = (float)Math.Max(0, Math.Min(1, e.GetPosition(trilhoG).X / Trilho));
+            try
+            {
+                var ctx = Guid.Empty;
+                mudouEm = Environment.TickCount;
+                ep.SetMasterVolumeLevelScalar(v, ref ctx);
+                if (mudo == true) ep.SetMute(false, ref ctx);
+                ultimo = v; mudo = false;
+                Publicar(v, false);
+                Exibir(v, false);
+            }
+            catch (Exception ex) { Log("ajustar: " + ex.Message); }
+        }
 
         public void Iniciar()
         {
@@ -255,7 +340,9 @@ namespace MacSkin
             }
             else janela.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(60)));
 
-            escondeT.Stop(); escondeT.Start();
+            escondeT.Stop();
+            if (brilho && interativo) SairInterativo();   // brilho apareceu: o cartão volta a ser só um aviso
+            if (!interativo) escondeT.Start();
             // o indicador nativo aparece uns instantes depois da mudança: vigia por um tempo e esconde
             nativoRestante = 75; OcultarNativo(); nativoT.Start();
         }

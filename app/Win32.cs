@@ -51,6 +51,7 @@ namespace MacSkin
         // estilos estendidos: fora do Alt+Tab (TOOLWINDOW), não rouba foco (NOACTIVATE), clique atravessa (TRANSPARENT)
         public const int EX_TOOL = 0x80, EX_NOACTIVATE = 0x08000000, EX_TRANSPARENT = 0x20;
         public static void Estilo(IntPtr h, int extra) { SetWindowLong(h, -20, GetWindowLong(h, -20) | extra); }
+        public static void SemEstilo(IntPtr h, int extra) { SetWindowLong(h, -20, GetWindowLong(h, -20) & ~extra); }
 
         // sempre no topo, sem ativar
         public static void MoverNoTopo(IntPtr h, int x, int y, int w, int hh) { SetWindowPos(h, new IntPtr(-1), x, y, w, hh, 0x0010); }

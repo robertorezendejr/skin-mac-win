@@ -113,7 +113,7 @@ namespace MacSkin
             volMudo.StrokeThickness = 1.6;
             volDesenho.Children.Add(volMudo);
             Volume.Alterou += AtualizarVolume; AtualizarVolume();
-            Item(dir, volDesenho, s => Win32.Win(0x41));    // volume
+            Item(dir, volDesenho, s => Volume.Alternar());    // volume: abre o próprio cartão, arrastável
             wifi = Glifo(0xE701, 15);   // só para cabo / sem rede; o Wi-Fi é desenhado abaixo
             // Wi-Fi do Mac: cunha embaixo e dois arcos grossos de pontas redondas; o que passa do sinal fica apagado
             // centro na ponta da cunha (10;13,4); raios 4, 8 e 12: o mesmo espaço entre eles
