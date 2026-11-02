@@ -67,6 +67,8 @@ namespace MacSkin
 
             if (n != 3 || Pausado)
             {
+                // sobrou 1 dedo: o Windows passa a mover o cursor com ele, então solta o botão na hora (sem tolerância)
+                if (n == 1 && !Pausado && (estado == Estado.Arrastando || estado == Estado.Soltando)) { Encerra(); return; }
                 if (estado == Estado.Armado) estado = Estado.Ocioso;
                 else if (estado == Estado.Arrastando) { estado = Estado.Soltando; ArmaSolta(ToleranciaMs); }
                 return;
