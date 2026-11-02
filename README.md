@@ -10,6 +10,64 @@ Deixa o Windows com cara de macOS **sem precisar de admin**. Tudo é aplicado s�
 - Ícones da Apple na Lixeira, Este Computador, pastas do usuário e atalhos da barra e do Iniciar
 - Fonte [Inter](https://rsms.me/inter/) (OFL)
 
+![Mac Skin no Windows: barra de menus, Finder e dock](docs/img/visao-geral.png)
+
+## Funcionalidades
+
+### Dock
+
+Vidro com desfoque (Liquid Glass), ícones que crescem sob o mouse e ponto nos apps abertos. Botão direito num app: *Manter na Dock*, *Não mostrar na Dock* e *Encerrar*; no fundo da dock: editar itens, Substituição de Texto, reiniciar e desligar o Mac Skin.
+
+![Ícones da dock crescendo sob o mouse](docs/img/dock.gif)
+
+| Menu de um app | Menu da dock |
+|---|---|
+| ![Menu de um app na dock](docs/img/dock-menu-app.png) | ![Menu do fundo da dock](docs/img/dock-menu.png) |
+
+### Barra de menus
+
+Calendário no relógio, Bluetooth, Central de Controle com os apps em segundo plano (a bandeja do Windows) e indicador de volume em vidro, como no macOS.
+
+| Calendário | Central de Controle |
+|---|---|
+| ![Calendário](docs/img/barra-calendario.png) | ![Central de Controle](docs/img/barra-central.png) |
+
+| Bluetooth | Volume |
+|---|---|
+| ![Bluetooth](docs/img/barra-bluetooth.png) | ![Indicador de volume](docs/img/barra-volume.png) |
+
+### Finder
+
+Navegador de arquivos no visual do Finder, com arquivos de verdade do Windows: abas, voltar/avançar, busca, caminho editável e menu de contexto nativo do Windows (inclui *Compactar para...*).
+
+Três modos de visualização: lista, ícones e galeria.
+
+![Finder em lista](docs/img/finder-lista.png)
+![Finder em ícones](docs/img/finder-icones.png)
+![Finder em galeria](docs/img/finder-galeria.png)
+
+**Visualização Rápida:** a barra de espaço abre e fecha a prévia do item selecionado; as setas trocam de item e Esc fecha.
+
+![Visualização Rápida](docs/img/finder-previa.png)
+
+**Menu de contexto** com todas as extensões do sistema:
+
+![Menu de contexto do Finder](docs/img/finder-menu.png)
+
+### Substituição de Texto
+
+Digite um atalho (ex.: `@ass`) em qualquer app e ele vira o texto cadastrado, com campos como data, hora, dia da semana, área de transferência e posição do cursor. Abra em *botão direito na dock › Substituição de Texto…*. Tudo fica no seu computador.
+
+![Editor de Substituição de Texto](docs/img/substituicao.png)
+
+### Outros
+
+- **Arrastar com 3 dedos** no touchpad de precisão, como no Mac (veja a seção abaixo).
+- **Botões da janela:** minimizar fica amarelo e maximizar verde ao passar o mouse.
+- **Abrir, salvar e escolher pasta** dos programas viram o Finder.
+- **Confirmação de exclusão** em vidro, no lugar do diálogo do Explorador.
+- **Janelas de pasta do Explorador** abrem no Finder; `.zip` descompacta ao lado, como no Mac.
+
 ## Gerar o instalador (num Mac)
 
 ```bash
