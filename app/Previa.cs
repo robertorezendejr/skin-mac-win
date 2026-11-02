@@ -1,6 +1,6 @@
 // Mac Skin Finder: Visualização Rápida, como o Quick Look do macOS. Espaço abre e fecha a prévia do item selecionado,
 // as setas trocam de item com ela aberta e Esc fecha.
-// Imagens, vídeo/áudio e texto o próprio WPF mostra; PDF, Office e o resto usam os preview handlers do Windows
+// Pasta mostra a lista do que tem dentro. Imagens, vídeo/áudio e texto o próprio WPF mostra; PDF, Office e o resto usam os preview handlers do Windows
 // (os mesmos do painel de visualização do Explorador), rodando fora do processo (prevhost.exe) para um handler
 // com defeito não derrubar a dock e a barra. Sem nada disso: ícone grande com nome, tipo, tamanho e data.
 using System;
@@ -57,7 +57,7 @@ namespace MacSkin
             Limpar();
             titulo.Text = e.Nome;
             string ext = Path.GetExtension(e.Caminho);
-            if (e.EhPasta) Ficha(e);
+            if (e.EhPasta) Pasta(e);
             else if (Imagens.Contains(ext)) Imagem(e);
             else if (Videos.Contains(ext) || Audios.Contains(ext)) Midia(e, Audios.Contains(ext));
             else if (Textos.Contains(ext)) Texto(e);
@@ -317,7 +317,7 @@ namespace MacSkin
         // tipo desconhecido e sem preview handler: se for texto pequeno, mostra o texto; senão, a ficha
         void TextoOuFicha(Entrada e)
         {
-            if (e.EhPasta || e.Tamanho > 2 * 1024 * 1024) { Ficha(e); return; }
+            if (e.Tamanho > 2 * 1024 * 1024) { Ficha(e); return; }
             int minha = vez;
             Ficha(e);
             Task.Run(() => LerTexto(e.Caminho)).ContinueWith(t =>
@@ -325,6 +325,101 @@ namespace MacSkin
                 if (minha != vez || t.Exception != null || t.Result == null || t.Result.Trim().Length == 0) return;
                 MostrarTexto(t.Result);
                 Tamanho(820, 900);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        // ---------- pasta: cabeçalho e a lista do que tem dentro ----------
+        const string XamlPasta = @"
+<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>" + Finder.Rolagem + @"
+  <DataTemplate x:Key='Linha'>
+    <Grid Height='26' Margin='16,0,14,0'>
+      <Grid.ColumnDefinitions><ColumnDefinition Width='28'/><ColumnDefinition Width='*'/><ColumnDefinition Width='150'/><ColumnDefinition Width='70'/></Grid.ColumnDefinitions>
+      <Image Source='{Binding Icone}' Width='18' Height='18' HorizontalAlignment='Left' VerticalAlignment='Center' RenderOptions.BitmapScalingMode='HighQuality'/>
+      <TextBlock Grid.Column='1' Text='{Binding Nome}' TextTrimming='CharacterEllipsis' VerticalAlignment='Center'/>
+      <TextBlock Grid.Column='2' Text='{Binding Tipo}' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' Margin='12,0,0,0' Foreground='{DynamicResource TextoSec}'/>
+      <TextBlock Grid.Column='3' Text='{Binding TamanhoTexto}' TextAlignment='Right' VerticalAlignment='Center' Foreground='{DynamicResource TextoSec}'/>
+    </Grid>
+  </DataTemplate>
+  <ControlTemplate x:Key='Rolavel' TargetType='ItemsControl'>
+    <ScrollViewer Focusable='False' CanContentScroll='True' VerticalScrollBarVisibility='Auto' HorizontalScrollBarVisibility='Disabled'><ItemsPresenter/></ScrollViewer>
+  </ControlTemplate>
+  <ItemsPanelTemplate x:Key='Painel'><VirtualizingStackPanel/></ItemsPanelTemplate>
+</ResourceDictionary>";
+        ResourceDictionary recursosPasta;
+
+        // só pede o ícone das linhas que aparecem na tela: a pasta pode ter milhares de itens
+        class ListaItens : ItemsControl
+        {
+            protected override void PrepareContainerForItemOverride(DependencyObject c, object item)
+            {
+                base.PrepareContainerForItemOverride(c, item);
+                var en = (Entrada)item;
+                if (en.Icone != null) return;
+                var mac = en.EhPasta ? Finder.IconePasta(en.Caminho) : null;
+                if (mac != null) en.Icone = mac;
+                else Shell.PedirImagem(en.Caminho, 32, i => en.Icone = i);
+            }
+        }
+
+        void Pasta(Entrada e)
+        {
+            int minha = vez;
+            var texto = Comum.Cor(claro ? "#FF1D1D1F" : "#FFECECEC");
+            var sec = Comum.Cor(claro ? "#FF6E6E73" : "#FF9A9A9F");
+            if (recursosPasta == null)
+            {
+                recursosPasta = (ResourceDictionary)System.Windows.Markup.XamlReader.Parse(XamlPasta);
+                recursosPasta["TextoSec"] = sec;
+            }
+
+            var img = new Image { Width = 44, Height = 44, Source = Finder.IconePasta(e.Caminho) ?? e.Grande ?? e.Icone, Margin = new Thickness(0, 0, 12, 0) };
+            var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            info.Children.Add(new TextBlock { Text = e.Nome, Foreground = texto, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            var resumo = new TextBlock { Text = "Modificado: " + e.DataTexto, Foreground = sec, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            info.Children.Add(resumo);
+            var cab = new DockPanel { Margin = new Thickness(16, 4, 16, 10) };
+            DockPanel.SetDock(img, System.Windows.Controls.Dock.Left);
+            cab.Children.Add(img); cab.Children.Add(info);
+
+            var corpo = new Grid();
+            corpo.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            corpo.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            corpo.RowDefinitions.Add(new RowDefinition());
+            corpo.Children.Add(cab);
+            var linha = new Border { Height = 1, Background = Comum.Cor("#33808080") };
+            Grid.SetRow(linha, 1);
+            corpo.Children.Add(linha);
+            area.Child = corpo;
+            Tamanho(640, 520);
+
+            Task.Run(() =>
+            {
+                var l = Finder.LerPasta(e.Caminho).ToList();
+                l.Sort((a, b) => a.EhPasta != b.EhPasta ? (a.EhPasta ? -1 : 1) : Shell.StrCmpLogicalW(a.Nome, b.Nome));   // pastas primeiro
+                return l;
+            }).ContinueWith(t =>
+            {
+                if (minha != vez) return;
+                string aviso = t.Exception != null ? "Não foi possível ler esta pasta" : t.Result.Count == 0 ? "Pasta vazia" : null;
+                if (aviso != null)
+                {
+                    var msg = new TextBlock { Text = aviso, Foreground = sec, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetRow(msg, 2);
+                    corpo.Children.Add(msg);
+                    return;
+                }
+                int n = t.Result.Count;
+                resumo.Text = (n == 1 ? "1 item" : n.ToString("N0", Finder.PtBr) + " itens") + "  ·  Modificado: " + e.DataTexto;
+                var itens = new ListaItens
+                {
+                    Resources = recursosPasta, Foreground = texto, Focusable = false, ItemsSource = t.Result,
+                    ItemTemplate = (DataTemplate)recursosPasta["Linha"], Template = (ControlTemplate)recursosPasta["Rolavel"],
+                    ItemsPanel = (ItemsPanelTemplate)recursosPasta["Painel"], Margin = new Thickness(0, 4, 0, 4)
+                };
+                VirtualizingPanel.SetIsVirtualizing(itens, true);
+                VirtualizingPanel.SetScrollUnit(itens, ScrollUnit.Pixel);
+                Grid.SetRow(itens, 2);
+                corpo.Children.Add(itens);
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
@@ -339,15 +434,8 @@ namespace MacSkin
             var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             info.Children.Add(new TextBlock { Text = e.Nome, Foreground = texto, FontSize = 20, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxWidth = 340 });
             info.Children.Add(new TextBlock { Text = e.Tipo ?? Shell.Tipo(e.Nome, e.EhPasta), Foreground = sec, Margin = new Thickness(0, 4, 0, 0) });
-            var tam = new TextBlock { Text = e.EhPasta ? "" : e.TamanhoTexto, Foreground = sec, Margin = new Thickness(0, 10, 0, 0) };
-            info.Children.Add(tam);
+            info.Children.Add(new TextBlock { Text = e.TamanhoTexto, Foreground = sec, Margin = new Thickness(0, 10, 0, 0) });
             info.Children.Add(new TextBlock { Text = "Modificado: " + e.DataTexto, Foreground = sec, Margin = new Thickness(0, 2, 0, 0) });
-            if (e.EhPasta)
-                Task.Run(() => Directory.EnumerateFileSystemEntries(e.Caminho).Count()).ContinueWith(t =>
-                {
-                    if (minha != vez || t.Exception != null) return;
-                    tam.Text = t.Result == 1 ? "1 item" : t.Result.ToString("N0", Finder.PtBr) + " itens";
-                }, TaskScheduler.FromCurrentSynchronizationContext());
             var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(32) };
             sp.Children.Add(img); sp.Children.Add(info);
             area.Child = sp;

@@ -112,13 +112,16 @@ namespace MacSkin
         {
             if (pasta) return "Pasta";
             string ext = Path.GetExtension(nome);
-            string t;
-            if (tipos.TryGetValue(ext, out t)) return t;
-            var i = new SHFILEINFO();
-            SHGetFileInfo(string.IsNullOrEmpty(ext) ? "arquivo" : "x" + ext, 0x80, ref i, Marshal.SizeOf(i), 0x400 | 0x10);   // TYPENAME | USEFILEATTRIBUTES
-            t = string.IsNullOrEmpty(i.szTypeName) ? ext.TrimStart('.').ToUpperInvariant() : i.szTypeName;
-            tipos[ext] = t;
-            return t;
+            lock (tipos)   // chamado de várias tarefas ao mesmo tempo (listagens do Finder e da prévia)
+            {
+                string t;
+                if (tipos.TryGetValue(ext, out t)) return t;
+                var i = new SHFILEINFO();
+                SHGetFileInfo(string.IsNullOrEmpty(ext) ? "arquivo" : "x" + ext, 0x80, ref i, Marshal.SizeOf(i), 0x400 | 0x10);   // TYPENAME | USEFILEATTRIBUTES
+                t = string.IsNullOrEmpty(i.szTypeName) ? ext.TrimStart('.').ToUpperInvariant() : i.szTypeName;
+                tipos[ext] = t;
+                return t;
+            }
         }
 
         // ordem "natural" do Windows: arquivo2 antes de arquivo10

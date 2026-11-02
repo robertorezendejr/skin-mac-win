@@ -803,15 +803,21 @@ namespace MacSkin
                     }
                     return r;
                 }
-                foreach (var i in new DirectoryInfo(destino).EnumerateFileSystemInfos())
-                {
-                    if ((i.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;   // como o Finder: sem ocultos
-                    var fi = i as FileInfo;
-                    r.Add(Nova(i.Name, i.FullName, fi == null, fi == null ? 0 : fi.Length, i.LastWriteTime));
-                }
+                r.AddRange(LerPasta(destino));
             }
             catch (Exception e) { Log("ler " + destino + ": " + e.Message); }
             return r;
+        }
+
+        // o conteúdo de uma pasta de verdade; erro de acesso sobe para quem chamou
+        public static IEnumerable<Entrada> LerPasta(string pasta)
+        {
+            foreach (var i in new DirectoryInfo(pasta).EnumerateFileSystemInfos())
+            {
+                if ((i.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;   // como o Finder: sem ocultos
+                var fi = i as FileInfo;
+                yield return Nova(i.Name, i.FullName, fi == null, fi == null ? 0 : fi.Length, i.LastWriteTime);
+            }
         }
 
         static Entrada Nova(string nome, string caminho, bool pasta, long tam, DateTime data)
@@ -964,6 +970,13 @@ namespace MacSkin
             return pastaMac;
         }
 
+        // ícone Mac de uma pasta; null se o arquivo do ícone não estiver instalado
+        public static ImageSource IconePasta(string caminho)
+        {
+            string esp;
+            return pastasEspeciais.TryGetValue(caminho, out esp) ? IconeMac(esp) : PastaMac();
+        }
+
         void PedirIcones() { PedirIcones(itens.ToList()); }
         void PedirIcones(IEnumerable<Entrada> quais)
         {
@@ -974,7 +987,7 @@ namespace MacSkin
                 var en = e;
                 if (en.EhPasta)
                 {
-                    string esp; var mac = pastasEspeciais.TryGetValue(en.Caminho, out esp) ? IconeMac(esp) : PastaMac();
+                    var mac = IconePasta(en.Caminho);
                     if (mac != null) { en.Icone = mac; en.Grande = mac; continue; }
                 }
                 Shell.PedirImagem(en.Caminho, px, img => { if (g != geracao) return; if (px <= 32) en.Icone = img; else { en.Grande = img; if (en.Icone == null) en.Icone = img; } });
@@ -1728,6 +1741,48 @@ namespace MacSkin
         }
 
         // ---------- desenho da janela ----------
+        // barras de rolagem finas do macOS: sem setas, trilho transparente, alça arredondada que engrossa no hover
+        // (também na lista de pasta da Visualização Rápida; quem usa define o recurso TextoSec)
+        public const string Rolagem = @"
+    <Style TargetType='Thumb' x:Key='Alca'>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='Thumb'>
+        <Border CornerRadius='3' Background='{DynamicResource TextoSec}' Opacity='0.55'/>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType='ScrollBar'>
+      <Setter Property='Background' Value='Transparent'/>
+      <Setter Property='Width' Value='10'/>
+      <Setter Property='MinWidth' Value='10'/>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+        <Grid Background='Transparent'>
+          <Track x:Name='PART_Track' IsDirectionReversed='True' Margin='3,2'>
+            <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
+          </Track>
+        </Grid>
+        <ControlTemplate.Triggers>
+          <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='1,2'/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <Trigger Property='Orientation' Value='Horizontal'>
+          <Setter Property='Width' Value='Auto'/>
+          <Setter Property='MinWidth' Value='0'/>
+          <Setter Property='Height' Value='10'/>
+          <Setter Property='MinHeight' Value='10'/>
+          <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+            <Grid Background='Transparent'>
+              <Track x:Name='PART_Track' IsDirectionReversed='False' Margin='2,3'>
+                <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
+              </Track>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='2,1'/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate></Setter.Value></Setter>
+        </Trigger>
+      </Style.Triggers>
+    </Style>";
+
         const string Xaml = @"
 <Window xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
         Title='Finder' Width='1180' Height='720' MinWidth='640' MinHeight='380' WindowStartupLocation='CenterScreen'
@@ -1803,45 +1858,7 @@ namespace MacSkin
         </ControlTemplate.Triggers>
       </ControlTemplate></Setter.Value></Setter>
     </Style>
-    <!-- barras de rolagem finas do macOS: sem setas, trilho transparente, alça arredondada que engrossa no hover -->
-    <Style TargetType='Thumb' x:Key='Alca'>
-      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='Thumb'>
-        <Border CornerRadius='3' Background='{DynamicResource TextoSec}' Opacity='0.55'/>
-      </ControlTemplate></Setter.Value></Setter>
-    </Style>
-    <Style TargetType='ScrollBar'>
-      <Setter Property='Background' Value='Transparent'/>
-      <Setter Property='Width' Value='10'/>
-      <Setter Property='MinWidth' Value='10'/>
-      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
-        <Grid Background='Transparent'>
-          <Track x:Name='PART_Track' IsDirectionReversed='True' Margin='3,2'>
-            <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
-          </Track>
-        </Grid>
-        <ControlTemplate.Triggers>
-          <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='1,2'/></Trigger>
-        </ControlTemplate.Triggers>
-      </ControlTemplate></Setter.Value></Setter>
-      <Style.Triggers>
-        <Trigger Property='Orientation' Value='Horizontal'>
-          <Setter Property='Width' Value='Auto'/>
-          <Setter Property='MinWidth' Value='0'/>
-          <Setter Property='Height' Value='10'/>
-          <Setter Property='MinHeight' Value='10'/>
-          <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
-            <Grid Background='Transparent'>
-              <Track x:Name='PART_Track' IsDirectionReversed='False' Margin='2,3'>
-                <Track.Thumb><Thumb Style='{StaticResource Alca}'/></Track.Thumb>
-              </Track>
-            </Grid>
-            <ControlTemplate.Triggers>
-              <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='PART_Track' Property='Margin' Value='2,1'/></Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate></Setter.Value></Setter>
-        </Trigger>
-      </Style.Triggers>
-    </Style>
+" + Rolagem + @"
   </Window.Resources>
 
   <Grid x:Name='raiz'>
