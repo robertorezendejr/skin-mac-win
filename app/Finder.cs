@@ -90,6 +90,7 @@ namespace MacSkin
         string modo = "lista";
         string ordem = "Nome"; bool crescente = true;
         FileSystemWatcher vigia;
+        bool fechada;
         DispatcherTimer recarregar, buscaAuto;
         CancellationTokenSource buscaCancel;
         bool emBusca;   // a lista mostra resultados da busca em subpastas (Enter), não o conteúdo da pasta
@@ -263,7 +264,7 @@ namespace MacSkin
             };
             Action remontar = () => { MontarLateral(); MarcarLateral(); };
             FavoritosMudaram += remontar;
-            w.Closed += delegate { if (vigia != null) vigia.Dispose(); FavoritosMudaram -= remontar; };
+            w.Closed += delegate { fechada = true; if (vigia != null) vigia.Dispose(); FavoritosMudaram -= remontar; };
 
             // soltar pastas no vazio da barra lateral as adiciona ao fim dos Favoritos
             var rolagem = (ScrollViewer)lateral.Parent;
@@ -1414,30 +1415,38 @@ namespace MacSkin
             if (mover) Clipboard.Clear();
         }
 
+        // em thread própria: a cópia pode levar minutos e o Finder continua respondendo. Não é thread de fundo: fechar a
+        // janela não interrompe a cópia no meio, o processo só termina quando ela acaba. A caixa de progresso e as perguntas
+        // são do Windows; nada aqui pode tocar na tela, só a recarga final, que volta para a thread da janela.
         void Transferir(List<string> origens, string destino, bool mover)
         {
-            foreach (var o in origens)
+            var t = new Thread(() =>
             {
-                try
+                foreach (var o in origens)
                 {
-                    string alvo = System.IO.Path.Combine(destino, System.IO.Path.GetFileName(o.TrimEnd('\\')));
-                    if (string.Equals(System.IO.Path.GetDirectoryName(o.TrimEnd('\\')), destino.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                    try
                     {
-                        if (mover) continue;   // mover para a mesma pasta: nada a fazer
-                        alvo = NomeLivre(destino, System.IO.Path.GetFileNameWithoutExtension(o) + " cópia", Directory.Exists(o) ? "" : System.IO.Path.GetExtension(o));
+                        string alvo = System.IO.Path.Combine(destino, System.IO.Path.GetFileName(o.TrimEnd('\\')));
+                        if (string.Equals(System.IO.Path.GetDirectoryName(o.TrimEnd('\\')), destino.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (mover) continue;   // mover para a mesma pasta: nada a fazer
+                            alvo = NomeLivre(destino, System.IO.Path.GetFileNameWithoutExtension(o) + " cópia", Directory.Exists(o) ? "" : System.IO.Path.GetExtension(o));
+                        }
+                        if (Directory.Exists(o))
+                        {
+                            if (mover) FileSystem.MoveDirectory(o, alvo, UIOption.AllDialogs);
+                            else FileSystem.CopyDirectory(o, alvo, UIOption.AllDialogs);
+                        }
+                        else if (mover) FileSystem.MoveFile(o, alvo, UIOption.AllDialogs);
+                        else FileSystem.CopyFile(o, alvo, UIOption.AllDialogs);
                     }
-                    if (Directory.Exists(o))
-                    {
-                        if (mover) FileSystem.MoveDirectory(o, alvo, UIOption.AllDialogs);
-                        else FileSystem.CopyDirectory(o, alvo, UIOption.AllDialogs);
-                    }
-                    else if (mover) FileSystem.MoveFile(o, alvo, UIOption.AllDialogs);
-                    else FileSystem.CopyFile(o, alvo, UIOption.AllDialogs);
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex) { MessageBox.Show(ex.Message, "Finder"); }
                 }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex) { MessageBox.Show(w, ex.Message, "Finder"); }
-            }
-            Carregar(atual, true);
+                w.Dispatcher.BeginInvoke(new Action(() => { if (!fechada) Carregar(atual, true); }));
+            });
+            t.SetApartmentState(ApartmentState.STA);   // a caixa de progresso do Windows usa COM
+            t.Start();
         }
 
         static string NomeLivre(string pasta, string baseNome, string ext)
@@ -1711,6 +1720,7 @@ namespace MacSkin
             if (ef == DragDropEffects.None) return;
             var origens = ((string[])e.Data.GetData(DataFormats.FileDrop)).Where(o => !string.Equals(o.TrimEnd('\\'), destino.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)).ToList();
             if (destino == Lixo) { MandarParaLixeira(origens, false); return; }
+            e.Effects = DragDropEffects.None;   // quem move somos nós e ainda não acabou: com "Move" o Explorer, se for a origem, apagaria os arquivos agora
             Transferir(origens, destino, ef == DragDropEffects.Move);
         }
 
