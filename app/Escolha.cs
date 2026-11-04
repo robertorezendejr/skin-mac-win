@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -37,6 +38,8 @@ namespace MacSkin
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, StringBuilder l);
         delegate bool EnumProc(IntPtr h, IntPtr l);
         [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr pai, EnumProc f, IntPtr l);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
 
         static WinEventProc proc; static IntPtr g1, g2, g3;
         static readonly HashSet<IntPtr> tratadas = new HashSet<IntPtr>();
@@ -171,6 +174,8 @@ namespace MacSkin
             readonly Finder f; readonly Window w;
             TextBox nome; TextBlock escolhido; Border ok; TextBlock okTexto;
             bool respondido;
+            List<string> extensoes = new List<string>();   // no "salvar": o que a caixa aceita; vazia = qualquer uma
+            string ultimoClicado;                          // só copia o nome quando o arquivo selecionado muda: atualizar a pasta não apaga o que foi digitado
 
             public Seletor(IntPtr caixa, string tipo, Action<int> sair)
             {
@@ -185,10 +190,10 @@ namespace MacSkin
                     var arqs = sel.Where(e => !e.EhPasta).ToList();
                     if (arqs.Count == 0) return false;
                     if (tipo == "abrir") Confirmar();
-                    else if (tipo == "salvar") { nome.Text = arqs[0].Nome; nome.Focus(); nome.SelectAll(); }
+                    else if (tipo == "salvar") { nome.Text = NomeParaSalvar(arqs[0]); nome.Focus(); nome.SelectAll(); }
                     return true;   // nos outros modos, duplo clique em arquivo não abre o arquivo
                 };
-                f.Mudou += Atualizar;
+                f.Mudou += delegate { PegarNomeDoClicado(); Atualizar(); };
                 w.WindowStartupLocation = WindowStartupLocation.Manual;
                 w.SourceInitialized += delegate
                 {
@@ -247,6 +252,7 @@ namespace MacSkin
                     nome.TextChanged += delegate { Atualizar(); };
                     nome.KeyDown += (s, e) => { if (e.Key == Key.Enter) { e.Handled = true; if (ok.IsEnabled) Confirmar(); } };
                     esq.Children.Add(new Border { CornerRadius = new CornerRadius(7), ClipToBounds = true, Child = nome });
+                    extensoes = ExtensoesDaCaixa(nome.Text);
                 }
                 else
                 {
@@ -277,6 +283,49 @@ namespace MacSkin
                 return b;
             }
 
+            // o tipo escolhido na caixa, "Documento PDF (*.pdf)" => .pdf; sem o padrão no rótulo, vale a extensão do nome sugerido
+            List<string> ExtensoesDaCaixa(string sugerido)
+            {
+                // sem ID fixo (costuma vir 0): é o ComboBox que não contém o campo de nome nem é da barra de endereço
+                IntPtr combo = IntPtr.Zero, doNome = Win32.GetAncestor(Filho(caixa, "Edit", 1001), 1);
+                EnumChildWindows(caixa, (c, l) =>
+                {
+                    if (Win32.Classe(c) != "ComboBox" || c == doNome || Win32.Classe(Win32.GetAncestor(c, 1)) == "ComboBoxEx32") return true;
+                    combo = c; return false;
+                }, IntPtr.Zero);
+                string rotulo = combo == IntPtr.Zero ? "" : Texto(combo);
+                Log("tipo da caixa: '" + rotulo + "'");
+                if (rotulo.Contains("*.*")) return new List<string>();
+                var r = Regex.Matches(rotulo, @"\*(\.[^\s;,()*]+)").Cast<Match>().Select(m => m.Groups[1].Value).ToList();
+                if (r.Count == 0 && Path.GetExtension(sugerido).Length > 0) r.Add(Path.GetExtension(sugerido));
+                return r;
+            }
+
+            // o Finder mostra todos os arquivos: clicar na planilha ao imprimir em PDF dá "planilha.pdf", nunca um PDF gravado por cima do .xlsx
+            string NomeParaSalvar(Entrada e)
+            {
+                if (extensoes.Count == 0 || extensoes.Contains(Path.GetExtension(e.Nome), StringComparer.OrdinalIgnoreCase)) return e.Nome;
+                return Path.GetFileNameWithoutExtension(e.Nome) + extensoes[0];
+            }
+
+            // clique em um arquivo: o nome dele vai para o campo, para salvar por cima; o campo continua livre para digitar
+            void PegarNomeDoClicado()
+            {
+                if (tipo != "salvar") return;
+                var sel = f.Selecao();
+                if (sel.Count != 1 || sel[0].EhPasta || string.Equals(sel[0].Caminho, ultimoClicado, StringComparison.OrdinalIgnoreCase)) return;
+                ultimoClicado = sel[0].Caminho;
+                nome.Text = NomeParaSalvar(sel[0]);
+            }
+
+            // a pasta do arquivo clicado, se o nome ainda é o dele: em Recentes e na busca o arquivo não está na pasta atual
+            string PastaDoClicado()
+            {
+                var sel = f.Selecao();
+                if (sel.Count != 1 || sel[0].EhPasta || !string.Equals(nome.Text.Trim(), NomeParaSalvar(sel[0]), StringComparison.OrdinalIgnoreCase)) return null;
+                return Path.GetDirectoryName(sel[0].Caminho);
+            }
+
             void Atualizar()
             {
                 if (ok == null) return;
@@ -296,7 +345,7 @@ namespace MacSkin
                     ok.IsEnabled = arqs.Count > 0 || soPasta;
                     escolhido.Text = arqs.Count == 1 ? arqs[0].Nome : arqs.Count > 1 ? arqs.Count + " arquivos selecionados" : soPasta ? sel[0].Nome : "Escolha um arquivo";
                 }
-                else ok.IsEnabled = real && nome.Text.Trim().Length > 0 && nome.Text.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+                else ok.IsEnabled = (real || PastaDoClicado() != null) && nome.Text.Trim().Length > 0 && nome.Text.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
             }
 
             void Confirmar()
@@ -336,7 +385,7 @@ namespace MacSkin
                 else
                 {
                     if (!ok.IsEnabled) return;
-                    Responder(Filho(caixa, "Edit", 1001), Path.Combine(atual, nome.Text.Trim()));
+                    Responder(Filho(caixa, "Edit", 1001), Path.Combine(PastaDoClicado() ?? atual, nome.Text.Trim()));
                 }
                 Lembrar(tipo == "pasta" ? atual : f.Atual);
             }
@@ -344,11 +393,34 @@ namespace MacSkin
             void Responder(IntPtr campo, string valor)
             {
                 if (campo == IntPtr.Zero) { Log("campo não encontrado; devolvendo a nativa"); UsarNativa(); return; }
-                Esconder();
+                respondido = true;
                 SendMessage(campo, 0x000C, IntPtr.Zero, valor);                    // WM_SETTEXT
                 Win32.PostMessage(caixa, 0x0111, (IntPtr)1, IntPtr.Zero);           // WM_COMMAND IDOK
                 Log(tipo + ": " + valor);
-                Fim(Respondeu);
+                TrazerPergunta(delegate { Esconder(); Fim(Respondeu); });
+            }
+
+            // "já existe, substituir?" nasce da caixa escondida e ficava atrás das outras janelas: enquanto o Finder ainda
+            // está em primeiro plano ele pode passar o foco para a pergunta; por isso só se esconde depois. Espera com timer:
+            // o Finder divide a fila de entrada com o programa (mesma janela dona) e, se travar, a pergunta não aparece
+            void TrazerPergunta(Action depois)
+            {
+                var inicio = DateTime.Now;
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
+                t.Tick += delegate
+                {
+                    double ms = (DateTime.Now - inicio).TotalMilliseconds;
+                    bool acabou = !IsWindow(caixa) || ms > 5000;
+                    if (!acabou)
+                    {
+                        IntPtr pergunta = IntPtr.Zero;
+                        if (IsWindowEnabled(caixa)) acabou = ms > 1200;   // livre: não vem pergunta
+                        else EnumWindows((j, l) => { if (GetWindow(j, 4) == caixa && IsWindowVisible(j)) { pergunta = j; return false; } return true; }, IntPtr.Zero);
+                        if (pergunta != IntPtr.Zero) { Log("pergunta em primeiro plano: " + Win32.SetForegroundWindow(pergunta)); acabou = true; }
+                    }
+                    if (acabou) { t.Stop(); depois(); }
+                };
+                t.Start();
             }
 
             void Cancelar()
