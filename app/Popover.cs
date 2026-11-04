@@ -492,10 +492,14 @@ if('%ACAO%' -ne 'ler'){A ($x.SetStateAsync('%ACAO%')) ([Windows.Devices.Radios.R
         static string Radio(string tipo, string acao)
         {
             var s = ScriptRadio.Replace("%KIND%", tipo).Replace("%ACAO%", acao);
-            var psi = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(s)))
-            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            // o script vai em texto puro pela entrada padrão ("-Command -"): comandos digitados não dependem da política de execução
+            var psi = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -Command -")
+            { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
             using (var p = Process.Start(psi))
             {
+                // sem quebras de linha soltas: no modo "-Command -" cada linha é executada à parte
+                p.StandardInput.WriteLine("& { " + s.Replace("\r", "").Replace("\n", "; ").Trim(' ', ';') + " }");
+                p.StandardInput.Close();
                 string o = p.StandardOutput.ReadToEnd(); p.WaitForExit(15000);
                 return o.Trim();
             }

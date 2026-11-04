@@ -84,32 +84,51 @@ namespace MacSkin
         public static void Atualizou()
         {
             ativos = D.Ligado ? D.Itens.Where(a => a.Ativo && !string.IsNullOrEmpty(a.Gatilho)).OrderByDescending(a => a.Gatilho.Length).ToArray() : new AtalhoTexto[0];
+            if (iniciado) { if (ativos.Length > 0) Ligar(); else Desligar(); }
         }
 
         // ---------- motor ----------
+        // o gancho de teclado só existe enquanto há atalho ativo: sem atalhos, o Mac Skin não monitora o teclado
+        static bool iniciado; static Thread fio; static uint fioId;
+
         public static void Iniciar()
         {
             ui = Dispatcher.CurrentDispatcher;
+            iniciado = true;
             Carregar();
-            var th = new Thread(() =>
+            if (ativos.Length == 0) Log("sem atalhos ativos: gancho de teclado desligado");
+        }
+
+        static void Ligar()
+        {
+            if (fio != null) return;
+            fio = new Thread(() =>
             {
+                fioId = GetCurrentThreadId();
                 teclado = Teclado; mouse = Mouse;
                 IntPtr mod = GetModuleHandle(null);
                 gTeclado = SetWindowsHookEx(13, teclado, mod, 0);   // WH_KEYBOARD_LL
                 gMouse = SetWindowsHookEx(14, mouse, mod, 0);       // WH_MOUSE_LL
-                Log("motor iniciado (" + D.Itens.Count + " atalhos)" + (gTeclado == IntPtr.Zero ? " — gancho falhou " + Marshal.GetLastWin32Error() : ""));
+                Log("motor iniciado (" + ativos.Length + " atalhos ativos)" + (gTeclado == IntPtr.Zero ? " — gancho falhou " + Marshal.GetLastWin32Error() : ""));
                 MSG m;
                 while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) { TranslateMessage(ref m); DispatchMessage(ref m); }
+                if (gTeclado != IntPtr.Zero) UnhookWindowsHookEx(gTeclado);
+                if (gMouse != IntPtr.Zero) UnhookWindowsHookEx(gMouse);
+                gTeclado = gMouse = IntPtr.Zero;
+                Log("motor parado");
             });
-            th.IsBackground = true; th.Name = "Substituição"; th.Start();
+            fio.IsBackground = true; fio.Name = "Substituição"; fio.Start();
         }
 
-        public static void Parar()
+        static void Desligar()
         {
-            if (gTeclado != IntPtr.Zero) UnhookWindowsHookEx(gTeclado);
-            if (gMouse != IntPtr.Zero) UnhookWindowsHookEx(gMouse);
-            gTeclado = gMouse = IntPtr.Zero;
+            if (fio == null) return;
+            for (int i = 0; i < 50 && fioId == 0; i++) Thread.Sleep(10);
+            if (fioId != 0) PostThreadMessage(fioId, 0x0012, IntPtr.Zero, IntPtr.Zero);   // WM_QUIT: o próprio fio solta os ganchos
+            fio = null; fioId = 0;
         }
+
+        public static void Parar() { iniciado = false; Desligar(); }
 
         const int Marca = 0x4D534B4E;   // dwExtraInfo das teclas que nós mesmos mandamos
         static HookProc teclado, mouse;
@@ -304,6 +323,8 @@ namespace MacSkin
         [DllImport("user32.dll")] static extern bool TranslateMessage(ref MSG m);
         [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref MSG m);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string n);
+        [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] static extern bool PostThreadMessage(uint tid, uint msg, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] static extern short GetAsyncKeyState(int v);
         [DllImport("user32.dll")] static extern short GetKeyState(int v);
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
