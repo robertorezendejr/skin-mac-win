@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -208,7 +209,7 @@ namespace MacSkin
         readonly Window jan, vidro;   // vidro: janela acrylic por trás (desfoca o fundo); jan: o conteúdo transparente por cima
         IntPtr hVidro;
         readonly Border aro, fundo;
-        readonly WrapPanel grade;
+        readonly UniformGrid grade;
         readonly TextBlock titulo, vazio, rapidas;
         readonly Border sep, itemRapidas;
         IntPtr h; bool? claro;
@@ -241,7 +242,7 @@ namespace MacSkin
             fundo = new Border { CornerRadius = new CornerRadius(Raio), BorderThickness = new Thickness(1) };
             var pilha = new StackPanel { Margin = new Thickness(16, 14, 16, 14) };
             titulo = new TextBlock { Text = "Em segundo plano", FontFamily = Fonte, FontSize = 12, FontWeight = FontWeights.SemiBold, Opacity = 0.6, Margin = new Thickness(4, 0, 0, 6) };
-            grade = new WrapPanel();
+            grade = new UniformGrid { Columns = 4 };   // 4 colunas iguais na largura toda: ícones centrados em cada uma
             vazio = new TextBlock { Text = "Nenhum app em segundo plano", FontFamily = Fonte, FontSize = 12, Opacity = 0.6, Margin = new Thickness(4, 2, 0, 4) };
             sep = new Border { Height = 1, Margin = new Thickness(0, 8, 0, 6) };
             rapidas = new TextBlock { Text = "Configurações rápidas…", FontFamily = Fonte, FontSize = 13 };
@@ -338,7 +339,7 @@ namespace MacSkin
                 var icone = ic;
                 var img = new Image { Source = ic.Img, Width = 20, Height = 20 };
                 RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-                var b = new Border { Width = 44, Height = 40, CornerRadius = new CornerRadius(7), Background = Nada, Child = img };
+                var b = new Border { Height = 44, Margin = new Thickness(2), CornerRadius = new CornerRadius(7), Background = Nada, Child = img };
                 string dica = ic.Dica.Length > 0 ? ic.Dica : Nome(ic);
                 if (dica.Length > 0) b.ToolTip = dica;
                 b.MouseEnter += delegate { b.Background = sobre; };
