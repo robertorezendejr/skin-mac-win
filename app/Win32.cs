@@ -47,6 +47,8 @@ namespace MacSkin
             return s.ToString();
         }
         public static uint Pid(IntPtr h) { uint p; GetWindowThreadProcessId(h, out p); return p; }
+        [DllImport("user32.dll")] public static extern IntPtr GetKeyboardLayout(uint thread);
+        [DllImport("user32.dll")] public static extern int GetKeyboardLayoutList(int n, IntPtr[] lista);
 
         // estilos estendidos: fora do Alt+Tab (TOOLWINDOW), não rouba foco (NOACTIVATE), clique atravessa (TRANSPARENT)
         public const int EX_TOOL = 0x80, EX_NOACTIVATE = 0x08000000, EX_TRANSPARENT = 0x20;

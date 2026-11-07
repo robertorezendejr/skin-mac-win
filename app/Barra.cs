@@ -97,6 +97,15 @@ namespace MacSkin
             appAtivo = Rotulo("", FontWeights.SemiBold);   // não exibido: só o logo fica à esquerda
 
             // ---------- direita (na ordem do Mac) ----------
+            // teclado: bandeira do layout da janela em foco (ABNT2 = Brasil, US-Internacional = EUA); Win+Espaço troca
+            bandeiraBR = BandeiraBrasil(); bandeiraEUA = BandeiraEUA();
+            idiomaTxt = Rotulo("", FontWeights.SemiBold); idiomaTxt.FontSize = 11;
+            var teclado = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            teclado.Children.Add(bandeiraBR); teclado.Children.Add(bandeiraEUA); teclado.Children.Add(idiomaTxt);
+            Item(dir, teclado, s => TrocarTeclado());
+            AtualizarTeclado();
+            var tTeclado = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };   // Win+Espaço aparece quase na hora
+            tTeclado.Tick += delegate { AtualizarTeclado(); }; tTeclado.Start();
             // volume do Mac: alto-falante cheio e dois arcos grossos de pontas redondas
             // arcos centrados em (8;6,5), raios 3,6 e 7,2: o mesmo espaço entre eles
             // 4 níveis: alto-falante + 3 arcos (centro 8;7,5, raios 3,4 / 6,8 / 10,2); mudo ou zero: alto-falante com "x"
@@ -249,6 +258,121 @@ namespace MacSkin
             catch { n = ""; }
             nomes[id] = n;
             return n;
+        }
+
+        // ---------- teclado ----------
+        Canvas bandeiraBR, bandeiraEUA; TextBlock idiomaTxt; int idiomaAtual = -1;
+        static readonly Dictionary<long, int> idiomaDoLayout = new Dictionary<long, int>();
+
+        // idioma do LAYOUT (não do idioma de entrada): "Português (Brasil)" com teclado US-Internacional dá 0x0409
+        static int IdiomaLayout(IntPtr hkl)
+        {
+            long v = hkl.ToInt64() & 0xFFFFFFFF;
+            int r;
+            if (idiomaDoLayout.TryGetValue(v, out r)) return r;
+            int alto = (int)(v >> 16) & 0xFFFF;
+            r = alto;
+            if ((alto & 0xF000) == 0xF000)   // variante (ABNT2, US-Internacional...): achar o KLID pelo "Layout Id"
+            {
+                r = (int)(v & 0xFFFF);
+                try
+                {
+                    using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Keyboard Layouts"))
+                        foreach (var klid in k.GetSubKeyNames())
+                            using (var s = k.OpenSubKey(klid))
+                            {
+                                var id = s.GetValue("Layout Id") as string;
+                                if (id != null && Convert.ToInt32(id, 16) == (alto & 0x0FFF)) { r = Convert.ToInt32(klid.Substring(4), 16); break; }
+                            }
+                }
+                catch (Exception ex) { Log("teclado: " + ex.Message); }
+            }
+            idiomaDoLayout[v] = r;
+            return r;
+        }
+
+        IntPtr JanelaDoTeclado()
+        {
+            IntPtr h = Win32.GetForegroundWindow();
+            return h == hwnd ? IntPtr.Zero : h;
+        }
+
+        void AtualizarTeclado()
+        {
+            try
+            {
+                IntPtr h = JanelaDoTeclado();
+                if (h == IntPtr.Zero) return;
+                uint pid;
+                int idioma = IdiomaLayout(Win32.GetKeyboardLayout(Win32.GetWindowThreadProcessId(h, out pid))) & 0x3FF;   // só o idioma primário
+                if (idioma == idiomaAtual) return;
+                idiomaAtual = idioma;
+                bandeiraBR.Visibility = idioma == 0x16 ? Visibility.Visible : Visibility.Collapsed;   // português
+                bandeiraEUA.Visibility = idioma == 0x09 ? Visibility.Visible : Visibility.Collapsed;  // inglês
+                string sigla = "";
+                if (idioma != 0x16 && idioma != 0x09) try { sigla = new CultureInfo(idioma).TwoLetterISOLanguageName.ToUpper(); } catch { sigla = "?"; }
+                idiomaTxt.Text = sigla;
+                idiomaTxt.Visibility = sigla == "" ? Visibility.Collapsed : Visibility.Visible;
+            }
+            catch (Exception ex) { Log("teclado: " + ex.Message); }
+        }
+
+        // clique na bandeira: passa a janela em foco para o primeiro layout de outro idioma (como o Win+Espaço)
+        void TrocarTeclado()
+        {
+            try
+            {
+                IntPtr h = JanelaDoTeclado();
+                if (h == IntPtr.Zero) return;
+                var lista = new IntPtr[16];
+                int n = Win32.GetKeyboardLayoutList(lista.Length, lista);
+                for (int i = 0; i < n; i++)
+                    if ((IdiomaLayout(lista[i]) & 0x3FF) != idiomaAtual)
+                    {
+                        Win32.PostMessage(h, 0x50, IntPtr.Zero, lista[i]);   // WM_INPUTLANGCHANGEREQUEST
+                        return;
+                    }
+            }
+            catch (Exception ex) { Log("trocar teclado: " + ex.Message); }
+        }
+
+        static Canvas FundoBandeira()
+        {
+            return new Canvas { Width = 20, Height = 14, VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true, Clip = new RectangleGeometry(new Rect(0, 0, 20, 14), 2.5, 2.5) };
+        }
+        static void Contorno(Canvas c)
+        {
+            c.Children.Add(new Rectangle { Width = 20, Height = 14, RadiusX = 2.5, RadiusY = 2.5, Stroke = Comum.Cor("#59FFFFFF"), StrokeThickness = 0.8 });
+        }
+        static Canvas BandeiraBrasil()
+        {
+            var c = FundoBandeira();
+            c.Children.Add(new Rectangle { Width = 20, Height = 14, Fill = Comum.Cor("#009C3B") });
+            c.Children.Add(new Path { Data = Geometry.Parse("M1.8,7 L10,1.6 L18.2,7 L10,12.4 Z"), Fill = Comum.Cor("#FFDF00") });
+            c.Children.Add(new Path { Data = Geometry.Parse("M6.6,7 A3.4,3.4 0 1 0 13.4,7 A3.4,3.4 0 1 0 6.6,7 Z"), Fill = Comum.Cor("#002776") });
+            c.Children.Add(new Path { Data = Geometry.Parse("M6.8,6.2 Q10,5.3 13.2,7.6"), Stroke = Brushes.White, StrokeThickness = 0.8 });
+            Contorno(c);
+            return c;
+        }
+        static Canvas BandeiraEUA()
+        {
+            var c = FundoBandeira();
+            c.Children.Add(new Rectangle { Width = 20, Height = 14, Fill = Brushes.White });
+            for (int i = 0; i < 7; i += 2)
+            {
+                var faixa = new Rectangle { Width = 20, Height = 2, Fill = Comum.Cor("#B22234") };
+                Canvas.SetTop(faixa, i * 2); c.Children.Add(faixa);
+            }
+            c.Children.Add(new Rectangle { Width = 9, Height = 8, Fill = Comum.Cor("#3C3B6E") });
+            for (int l = 0; l < 3; l++)
+                for (int k = 0; k < 3; k++)
+                {
+                    var e = new Ellipse { Width = 0.9, Height = 0.9, Fill = Brushes.White };
+                    Canvas.SetLeft(e, 1.5 + k * 2.6); Canvas.SetTop(e, 1.3 + l * 2.3);
+                    c.Children.Add(e);
+                }
+            Contorno(c);
+            return c;
         }
 
         void AtualizarRapido()   // 1x por segundo: relógio, app ativo, bateria, Wi-Fi lido em segundo plano, tela cheia
