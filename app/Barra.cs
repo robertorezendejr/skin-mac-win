@@ -336,42 +336,36 @@ namespace MacSkin
             catch (Exception ex) { Log("trocar teclado: " + ex.Message); }
         }
 
+        // bandeiras brancas, no estilo da bateria: fundo branco translúcido e o desenho em branco cheio, com os detalhes vazados
         static Canvas FundoBandeira()
         {
-            return new Canvas { Width = 20, Height = 14, VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true, Clip = new RectangleGeometry(new Rect(0, 0, 20, 14), 2.5, 2.5) };
-        }
-        static void Contorno(Canvas c)
-        {
-            c.Children.Add(new Rectangle { Width = 20, Height = 14, RadiusX = 2.5, RadiusY = 2.5, Stroke = Comum.Cor("#59FFFFFF"), StrokeThickness = 0.8 });
+            var c = new Canvas { Width = 20, Height = 14, VerticalAlignment = VerticalAlignment.Center };
+            c.Children.Add(new Rectangle { Width = 20, Height = 14, RadiusX = 3, RadiusY = 3, Fill = Comum.Cor("#40FFFFFF"), Stroke = Branco, StrokeThickness = 1.3 });
+            return c;
         }
         static Canvas BandeiraBrasil()
         {
             var c = FundoBandeira();
-            c.Children.Add(new Rectangle { Width = 20, Height = 14, Fill = Comum.Cor("#009C3B") });
-            c.Children.Add(new Path { Data = Geometry.Parse("M1.8,7 L10,1.6 L18.2,7 L10,12.4 Z"), Fill = Comum.Cor("#FFDF00") });
-            c.Children.Add(new Path { Data = Geometry.Parse("M6.6,7 A3.4,3.4 0 1 0 13.4,7 A3.4,3.4 0 1 0 6.6,7 Z"), Fill = Comum.Cor("#002776") });
-            c.Children.Add(new Path { Data = Geometry.Parse("M6.8,6.2 Q10,5.3 13.2,7.6"), Stroke = Brushes.White, StrokeThickness = 0.8 });
-            Contorno(c);
+            // losango com o círculo vazado; a faixa do lema atravessa o círculo
+            var losango = new CombinedGeometry(GeometryCombineMode.Exclude, Geometry.Parse("M3.6,7 L10,3 L16.4,7 L10,11 Z"), new EllipseGeometry(new Point(10, 7), 2.5, 2.5));
+            c.Children.Add(new Path { Data = losango, Fill = Branco });
+            c.Children.Add(new Path { Data = Geometry.Parse("M7.6,6.5 Q10,5.8 12.4,7.4"), Stroke = Branco, StrokeThickness = 0.9 });
             return c;
         }
         static Canvas BandeiraEUA()
         {
             var c = FundoBandeira();
-            c.Children.Add(new Rectangle { Width = 20, Height = 14, Fill = Brushes.White });
-            for (int i = 0; i < 7; i += 2)
-            {
-                var faixa = new Rectangle { Width = 20, Height = 2, Fill = Comum.Cor("#B22234") };
-                Canvas.SetTop(faixa, i * 2); c.Children.Add(faixa);
-            }
-            c.Children.Add(new Rectangle { Width = 9, Height = 8, Fill = Comum.Cor("#3C3B6E") });
+            // listras brancas (as outras ficam no fundo translúcido) e o cantão cheio com as estrelas vazadas
+            var listras = new GeometryGroup();
+            for (int i = 0; i < 7; i += 2) listras.Children.Add(new RectangleGeometry(new Rect(0, i * 2, 20, 2)));
+            var clip = new RectangleGeometry(new Rect(0, 0, 20, 14), 3, 3);
+            var semCantao = new CombinedGeometry(GeometryCombineMode.Exclude, listras, new RectangleGeometry(new Rect(0, 0, 9.5, 8)));
+            c.Children.Add(new Path { Data = new CombinedGeometry(GeometryCombineMode.Intersect, semCantao, clip), Fill = Branco });
+            var estrelas = new GeometryGroup();
             for (int l = 0; l < 3; l++)
-                for (int k = 0; k < 3; k++)
-                {
-                    var e = new Ellipse { Width = 0.9, Height = 0.9, Fill = Brushes.White };
-                    Canvas.SetLeft(e, 1.5 + k * 2.6); Canvas.SetTop(e, 1.3 + l * 2.3);
-                    c.Children.Add(e);
-                }
-            Contorno(c);
+                for (int k = 0; k < 3; k++) estrelas.Children.Add(new EllipseGeometry(new Point(2 + k * 2.75, 1.9 + l * 2.1), 0.6, 0.6));
+            var cantao = new CombinedGeometry(GeometryCombineMode.Exclude, new CombinedGeometry(GeometryCombineMode.Intersect, new RectangleGeometry(new Rect(0, 0, 8.5, 7.5)), clip), estrelas);
+            c.Children.Add(new Path { Data = cantao, Fill = Branco });
             return c;
         }
 
