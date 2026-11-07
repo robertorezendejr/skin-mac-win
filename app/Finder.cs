@@ -73,6 +73,7 @@ namespace MacSkin
         StackPanel lateral, caminhoBarra;
         TextBlock titulo, statusSelecao;
         TextBox busca, endereco;
+        FrameworkElement avisoBusca; TextBlock avisoBuscaTitulo, avisoBuscaTexto;
         FrameworkElement limparLixo;
         Button bLimparLixo;
         Button voltar, avancar;
@@ -127,6 +128,7 @@ namespace MacSkin
             colLateral.Width = new GridLength(larguraLateral);
             ((GridSplitter)w.FindName("divisa")).DragCompleted += delegate { larguraLateral = colLateral.ActualWidth; };
             titulo = (TextBlock)w.FindName("titulo"); statusSelecao = (TextBlock)w.FindName("statusSelecao"); busca = (TextBox)w.FindName("busca"); endereco = (TextBox)w.FindName("endereco");
+            avisoBusca = (FrameworkElement)w.FindName("avisoBusca"); avisoBuscaTitulo = (TextBlock)w.FindName("avisoBuscaTitulo"); avisoBuscaTexto = (TextBlock)w.FindName("avisoBuscaTexto");
             abasGrade = (UniformGrid)w.FindName("abas"); abasFundo = (Border)w.FindName("abasFundo");
             ativa = new Aba(); historico = ativa.Historico; abas.Add(ativa);
             ((Button)w.FindName("novaAba")).Click += delegate { NovaAba(atual); };
@@ -578,6 +580,7 @@ namespace MacSkin
             abertos.Clear();   // as pastas abertas em cascata valem só para a pasta atual
             emBusca = false;   // o Carregar abaixo já repõe a lista
             if (buscaCancel != null) buscaCancel.Cancel();
+            AvisoBusca(null, null);
             if (busca.Text.Length > 0) busca.Text = "";
             ativa.Pos = pos; MontarAbas();
             MarcarLateral(); MontarCaminho(); Vigiar();
@@ -1018,6 +1021,7 @@ namespace MacSkin
             {
                 emBusca = false;
                 if (buscaCancel != null) buscaCancel.Cancel();
+                AvisoBusca(null, null);
                 titulo.Text = NomeLocal(atual);
                 visao.Filter = null;
                 Carregar(atual, false);
@@ -1036,37 +1040,75 @@ namespace MacSkin
             var cts = buscaCancel = new CancellationTokenSource();
             emBusca = true;
             string raiz = atual; int g = ++geracao;
+            // a lista esvazia na hora: o conteúdo da pasta não pode ficar à vista, senão parece que não buscou
             titulo.Text = "Buscando “" + termo + "”…";
             visao.Filter = null;
+            itens.Clear();
+            AtualizarStatusSelecao();
+            AvisoBusca("Buscando “" + termo + "”…", "Procurando em " + NomeLocal(raiz) + " e em todas as subpastas");
+            // os achados entram na lista aos poucos (a cada 0,3 s), sem esperar a varredura toda
+            var achados = new List<Entrada>(); int mostrados = 0, pastasLidas = 0;
+            var pingar = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            Action despejar = () =>
+            {
+                List<Entrada> novos;
+                lock (achados) { novos = achados.Skip(mostrados).ToList(); mostrados = achados.Count; }
+                foreach (var e in novos) itens.Add(e);
+                if (novos.Count > 0) { AvisoBusca(null, null); PedirIcones(); AtualizarStatusSelecao(); }
+                if (itens.Count == 0) avisoBuscaTexto.Text = "Procurando em " + NomeLocal(raiz) + " e em todas as subpastas\n" + pastasLidas.ToString("N0", PtBr) + " pastas lidas";
+                titulo.Text = "Buscando “" + termo + "”… (" + itens.Count + ")";
+            };
+            pingar.Tick += delegate { if (g != geracao || cts.IsCancellationRequested) { pingar.Stop(); return; } despejar(); };
+            pingar.Start();
             Task.Factory.StartNew(() =>
             {
-                var r = new List<Entrada>();
+                int total = 0;
                 var pilha = new Stack<string>(); pilha.Push(raiz);
-                while (pilha.Count > 0 && r.Count < 2000 && !cts.IsCancellationRequested)
+                while (pilha.Count > 0 && total < 2000 && !cts.IsCancellationRequested)
                 {
                     string d = pilha.Pop();
                     try
                     {
                         foreach (var i in new DirectoryInfo(d).EnumerateFileSystemInfos())
                         {
+                            if (cts.IsCancellationRequested) break;
                             if ((i.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0) continue;
                             var fi = i as FileInfo;
                             if (fi == null && (i.Attributes & FileAttributes.ReparsePoint) == 0) pilha.Push(i.FullName);
                             if (i.Name.IndexOf(termo, StringComparison.CurrentCultureIgnoreCase) >= 0)
-                                r.Add(Nova(i.Name, i.FullName, fi == null, fi == null ? 0 : fi.Length, i.LastWriteTime));
+                            {
+                                var e = Nova(i.Name, i.FullName, fi == null, fi == null ? 0 : fi.Length, i.LastWriteTime);
+                                lock (achados) achados.Add(e);
+                                total++;
+                            }
                         }
                     }
                     catch { }
+                    Interlocked.Increment(ref pastasLidas);
                 }
-                return r;
             }, cts.Token).ContinueWith(t =>
             {
-                if (g != geracao || t.IsCanceled) return;
-                itens.Clear(); foreach (var e in Ordem(t.Result)) itens.Add(e);
-                titulo.Text = "Busca: “" + termo + "” (" + t.Result.Count + ")";
+                pingar.Stop();
+                if (g != geracao || cts.IsCancellationRequested) return;
+                List<Entrada> todos; lock (achados) todos = achados.ToList();
+                itens.Clear(); foreach (var e in Ordem(todos)) itens.Add(e);
+                titulo.Text = "Busca: “" + termo + "” (" + todos.Count + ")";
+                if (todos.Count == 0)
+                    AvisoBusca("Nenhum resultado para “" + termo + "”",
+                        "Nada com esse nome em " + NomeLocal(raiz) + " nem nas subpastas (" + pastasLidas.ToString("N0", PtBr) + " pastas lidas).\nA busca procura no nome dos arquivos e pastas, não no conteúdo.");
+                else AvisoBusca(null, null);
                 PedirIcones();
                 AtualizarStatusSelecao();
             }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        // aviso no meio da lista durante a busca; null esconde
+        void AvisoBusca(string tituloAviso, string texto)
+        {
+            if (avisoBusca == null) return;
+            avisoBusca.Visibility = tituloAviso == null ? Visibility.Collapsed : Visibility.Visible;
+            avisoBuscaTitulo.Text = tituloAviso ?? "";
+            avisoBuscaTexto.Text = texto ?? "";
         }
 
         // ---------- abrir ----------
@@ -1945,6 +1987,11 @@ namespace MacSkin
                ItemContainerStyle='{StaticResource Bloco}' ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
       </ListBox>
+      <!-- aviso da busca: procurando / nada encontrado -->
+      <StackPanel x:Name='avisoBusca' Grid.Row='2' Visibility='Collapsed' HorizontalAlignment='Center' VerticalAlignment='Center' IsHitTestVisible='False'>
+        <TextBlock x:Name='avisoBuscaTitulo' FontSize='17' FontWeight='SemiBold' HorizontalAlignment='Center' Foreground='{DynamicResource Texto}'/>
+        <TextBlock x:Name='avisoBuscaTexto' FontSize='13' Margin='0,6,0,0' HorizontalAlignment='Center' TextAlignment='Center' Foreground='{DynamicResource TextoSec}'/>
+      </StackPanel>
       <!-- laço de seleção (arrastar o mouse a partir do vazio) -->
       <Canvas x:Name='laco' Grid.Row='2' IsHitTestVisible='False' ClipToBounds='True'>
         <Grid x:Name='lacoRet' Visibility='Collapsed'><Border Background='{DynamicResource Azul}' Opacity='0.2'/><Border BorderBrush='{DynamicResource Azul}' BorderThickness='1'/></Grid></Canvas>
