@@ -21,8 +21,7 @@ namespace MacSkin
         [STAThread]
         static int Main(string[] args)
         {
-            if (args.Length > 0 && args[0] == "--vigia") return Vigia();
-            if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null, null, args.Length > 2 ? args[2] : null);
+            if (args.Length > 0 && args[0] == "--vigia") return Vigia();            if (args.Length > 0 && args[0] == "--finder") return AbrirFinder(args.Length > 1 ? args[1] : null, null, args.Length > 2 ? args[2] : null);
             if (args.Length > 1 && args[0] == "--descompactar") return AbrirFinder(Path.GetDirectoryName(args[1]), null, null, args[1]);
             if (args.Length > 1 && args[0] == "--escolher") return Escolha.Abrir(new IntPtr(long.Parse(args[1])));
             if (args.Length > 2 && args[0] == "--medir-finder") return AbrirFinder(args[1], args[2]);
@@ -76,9 +75,22 @@ namespace MacSkin
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
             barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar(); Arrastar3Dedos.Iniciar();
-            // mais leve: a cada minuto devolve ao Windows a memória que o .NET não está usando
-            var leve = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
-            leve.Tick += delegate { GC.Collect(); GC.WaitForPendingFinalizers(); SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1)); };
+            // mais leve: devolve ao Windows a memória que o .NET não está usando, mas só com o computador parado (2 min
+            // sem mouse/teclado) e uma vez por pausa. Fazer isso a cada minuto com o usuário mexendo deixava a dock e a
+            // barra lentas no próximo toque, porque tudo voltava do disco aos poucos.
+            bool limpou = false;
+            var leve = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            leve.Tick += delegate
+            {
+                var li = new LASTINPUTINFO { cbSize = 8 };
+                if (!GetLastInputInfo(ref li)) return;
+                bool parado = (uint)Environment.TickCount - li.dwTime > 120000;
+                if (!parado) { limpou = false; return; }
+                if (limpou) return;
+                limpou = true;
+                GC.Collect(); GC.WaitForPendingFinalizers();
+                SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
+            };
             leve.Start();
             int r = app.Run();
             GC.KeepAlive(mutex);
@@ -86,6 +98,8 @@ namespace MacSkin
         }
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool SetProcessWorkingSetSize(IntPtr h, IntPtr min, IntPtr max);
+        struct LASTINPUTINFO { public uint cbSize, dwTime; }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO i);
 
         // reabre o Mac Skin se ele cair; não fica consultando nada, só espera o processo terminar
         static int Vigia()

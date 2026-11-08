@@ -60,7 +60,7 @@ namespace MacSkin
         Item lixeira, sobre, arrastando;
         double arrastoX0; bool arrastoAtivo;
         IntPtr hwnd, hVidro; double f = 1; int telaW, telaH;
-        bool? claro; bool? cheia; bool mostrarBarra;
+        bool? claro; bool? cheia; bool mostrarBarra; int lendoLixeira;
         string rVidro;
         Brush corPonto = Brushes.White;
 
@@ -780,11 +780,22 @@ namespace MacSkin
                     foreach (var el in els) el.Ponto.Fill = corPonto;
                 }
                 AtualizarAbertos();
-                if (lixeira != null)
-                {
-                    bool ch = Win32.LixeiraCheia();
-                    if (ch != cheia) { cheia = ch; var img = Comum.Icone(ch && File.Exists(lixoCheio) ? lixoCheio : lixo); if (img != null) lixeira.Img.Source = img; }
-                }
+                // a Lixeira é lida fora da thread da tela (disco lento ou acordando não trava a dock)
+                if (lixeira != null && System.Threading.Interlocked.Exchange(ref lendoLixeira, 1) == 0)
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        bool ch = false;
+                        try { ch = Win32.LixeiraCheia(); } catch { }
+                        try
+                        {
+                            Janela.Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                lendoLixeira = 0;
+                                if (ch != cheia) { cheia = ch; var img = Comum.Icone(ch && File.Exists(lixoCheio) ? lixoCheio : lixo); if (img != null) lixeira.Img.Source = img; }
+                            }));
+                        }
+                        catch { lendoLixeira = 0; }
+                    });
                 var vis = Win32.TelaCheia(hwnd, telaW, telaH) ? Visibility.Hidden : Visibility.Visible;
                 if (dock.Visibility != vis) { dock.Visibility = vis; vidro.Visibility = vis; rVidro = null; Animar(); }
             }

@@ -28,7 +28,7 @@ namespace MacSkin
         TextBlock titulo, iconeEsq, iconeDir;
         double f = 1;
         bool? claro;
-        bool aberto;
+        bool aberto, fechando;
 
         IAudioEndpointVolume ep; string epId, epNome = "Alto-falantes";
         VolCb retorno;
@@ -52,6 +52,7 @@ namespace MacSkin
                 hVidro = new WindowInteropHelper(vidro).Handle;
                 HwndSource.FromHwnd(hVidro).CompositionTarget.BackgroundColor = Colors.Transparent;
                 Win32.Estilo(hVidro, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
+                Win32.Camuflar(hVidro, true);   // aberta uma vez só, camuflada; aparece e some sem ser recriada
             };
 
             double w = L + 2 * Folga, h = A + 2 * Folga;
@@ -66,6 +67,7 @@ namespace MacSkin
             {
                 hJanela = new WindowInteropHelper(janela).Handle;
                 Win32.Estilo(hJanela, Win32.EX_TOOL | Win32.EX_NOACTIVATE | Win32.EX_TRANSPARENT);
+                Win32.Camuflar(hJanela, true);
             };
 
             var raiz = new Grid();
@@ -149,6 +151,7 @@ namespace MacSkin
                 Exibir(ultimo < 0 ? Nivel : ultimo, mudo ?? Silenciado);
                 Win32.SemEstilo(hJanela, Win32.EX_TRANSPARENT);
                 escondeT.Stop();
+                GetAsyncKeyState(1); GetAsyncKeyState(2);   // zera o "apertado desde a última vez" do clique que abriu
                 cliqueForaT.Start();
             }
             catch (Exception e) { Log("abrir: " + e.Message); SairInterativo(); }
@@ -171,7 +174,10 @@ namespace MacSkin
 
         void VigiarCliqueFora()
         {
-            if ((GetAsyncKeyState(1) & 0x8000) == 0 && (GetAsyncKeyState(2) & 0x8000) == 0) return;
+            // 0x8000 = apertado agora; 0x0001 = apertado desde a última checagem (um toque rápido no touchpad cabe
+            // inteiro entre duas checagens de 50 ms e passava despercebido)
+            int esq = GetAsyncKeyState(1), dir = GetAsyncKeyState(2);
+            if (((esq | dir) & 0x8001) == 0) return;
             if (arrastando) return;
             Win32.POINT p; Win32.GetCursorPos(out p);
             var a = fundo.PointToScreen(new Point(0, 0));
@@ -199,6 +205,15 @@ namespace MacSkin
 
         public void Iniciar()
         {
+            // as duas janelas ficam abertas (camufladas) desde o início: abrir o cartão não paga o Show de janela nova
+            try
+            {
+                vidro.Show();
+                janela.Owner = vidro;   // o cartão fica sempre na frente do vidro
+                janela.Show();
+                f = PresentationSource.FromVisual(janela).CompositionTarget.TransformToDevice.M22;
+            }
+            catch (Exception e) { Log("janelas: " + e.Message); }
             try { Win32.VigiarOsd(AoSurgirNativo); Ligar(); dispositivoT.Start(); Log("volume iniciado em " + epNome); }
             catch (Exception e) { Log("não iniciou: " + e.Message); }
             LigarBrilho();
@@ -314,7 +329,7 @@ namespace MacSkin
         void Exibir(float v, bool m, bool brilho = false)
         {
             var c = Comum.TemaClaro();
-            if (c != claro) { claro = c; Tema(c); }
+            if (c != claro) { claro = c; Tema(c); if (hVidro != IntPtr.Zero) Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true); }
 
             titulo.Text = brilho ? "Brilho da Tela" : epNome;
             double pct = Math.Max(0, Math.Min(1, v));
@@ -325,20 +340,23 @@ namespace MacSkin
             if (aberto) nivel.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(alvo, TimeSpan.FromMilliseconds(70)));
             else { nivel.BeginAnimation(FrameworkElement.WidthProperty, null); nivel.Width = alvo; }
 
+            // o vidro (acrylic) é outra janela e não esmaece: antes ele aparecia sozinho, como uma barra escura, enquanto o
+            // cartão ainda vinha no fade. Agora o cartão é desenhado inteiro ainda camuflado e os dois aparecem juntos.
             if (!aberto)
             {
-                aberto = true;
-                vidro.Visibility = Visibility.Visible;
-                vidro.Show();
-                if (janela.Owner == null) janela.Owner = vidro;   // o cartão fica sempre na frente do vidro
-                janela.Show();
-                janela.UpdateLayout();
-                f = PresentationSource.FromVisual(janela).CompositionTarget.TransformToDevice.M22;
-                Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true);
+                aberto = true; fechando = false;
+                janela.BeginAnimation(UIElement.OpacityProperty, null);
+                janela.Opacity = 1;
                 PosicionarVidro();
-                janela.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(120)));
+                Revelar();
             }
-            else janela.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(60)));
+            else if (fechando)   // mudou de novo durante o fade de saída: o cartão já está na tela, volta o vidro
+            {
+                fechando = false; ++revelacao;
+                janela.BeginAnimation(UIElement.OpacityProperty, null);
+                janela.Opacity = 1;
+                Win32.Camuflar(hVidro, false); Win32.Camuflar(hJanela, false);   // o cartão também, se fechou antes de aparecer
+            }
 
             escondeT.Stop();
             if (brilho && interativo) SairInterativo();   // brilho apareceu: o cartão volta a ser só um aviso
@@ -353,15 +371,37 @@ namespace MacSkin
             Win32.Mover(hVidro, (int)p.X, (int)p.Y, (int)((L - 2 * Recuo) * f), (int)((A - 2 * Recuo) * f));
         }
 
+        // a janela em camadas mostra o quadro novo 1 a 2 quadros depois: espera o cartão estar desenhado e tira a
+        // camuflagem das duas no mesmo instante (vidro e cartão chegam juntos)
+        int revelacao;
+        void Revelar()
+        {
+            int minha = ++revelacao, quadros = 0;
+            EventHandler aoDesenhar = null;
+            aoDesenhar = delegate
+            {
+                if (++quadros < 3 && minha == revelacao) return;
+                CompositionTarget.Rendering -= aoDesenhar;
+                if (minha != revelacao || !aberto || fechando) return;
+                Win32.NoTopo(hVidro); Win32.NoTopo(hJanela);   // na frente de outras janelas "sempre no topo"
+                Win32.Camuflar(hVidro, false); Win32.Camuflar(hJanela, false);
+            };
+            CompositionTarget.Rendering += aoDesenhar;
+        }
+
         void Esconder()
         {
+            if (!aberto || fechando) return;
+            fechando = true;
+            int minha = ++revelacao;
             var anim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(220));
             anim.Completed += delegate
             {
-                if (janela.Opacity > 0.01) return;   // mudou de novo durante o fade
-                aberto = false; janela.Hide(); vidro.Hide();
+                if (!fechando || minha != revelacao) return;   // mudou de novo durante o fade
+                fechando = false; aberto = false;
+                Win32.Camuflar(hJanela, true);
             };
-            vidro.Visibility = Visibility.Hidden;   // o acrylic não esmaece: some junto com o começo do fade
+            Win32.Camuflar(hVidro, true);   // o acrylic não esmaece: some junto com o começo do fade
             janela.BeginAnimation(UIElement.OpacityProperty, anim);
         }
 

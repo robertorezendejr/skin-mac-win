@@ -207,6 +207,11 @@ namespace MacSkin
             int canto = redondo ? 2 : 1; DwmSetWindowAttribute(h, 33, ref canto, 4);
             int semBorda = unchecked((int)0xFFFFFFFE); DwmSetWindowAttribute(h, 34, ref semBorda, 4);   // sem a borda de 1 px do Windows 11
         }
+        // camufla (DWMWA_CLOAK): a janela continua aberta e desenhada, só não aparece. Mostrar de volta é instantâneo,
+        // sem o primeiro quadro preto/vazio de uma janela que acabou de ser mostrada
+        public static void Camuflar(IntPtr h, bool sim) { int v = sim ? 1 : 0; DwmSetWindowAttribute(h, 13, ref v, 4); }
+        public static void NoTopo(IntPtr h) { SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010); }
+
         // área dos 3 botões desenhados pelo Windows (relativa à janela) e parte visível da janela
         public static RECT BotoesDwm(IntPtr h) { RECT r; if (DwmGetWindowAttribute(h, 5, out r, 16) != 0) r = new RECT(); return r; }
         public static RECT Visivel(IntPtr h) { RECT r; if (DwmGetWindowAttribute(h, 9, out r, 16) != 0) GetWindowRect(h, out r); return r; }
@@ -214,9 +219,26 @@ namespace MacSkin
         // ---------- Lixeira ----------
         [StructLayout(LayoutKind.Sequential)] struct SHQUERYRBINFO { public int cbSize; public long i64Size; public long i64NumItems; }
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SHQueryRecycleBin(string raiz, ref SHQUERYRBINFO i);
+        // tem algo na Lixeira? O SHQueryRecycleBin soma o tamanho de tudo (meio segundo com 3 mil itens); aqui basta
+        // achar um "$R..." (o item apagado) na pasta $Recycle.Bin do usuário em cada disco: menos de 0,1 ms
+        static readonly string Sid = System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
         public static bool LixeiraCheia()
         {
-            var i = new SHQUERYRBINFO(); i.cbSize = Marshal.SizeOf(i);
+            bool algumaPasta = false;
+            foreach (var d in System.IO.DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (d.DriveType != System.IO.DriveType.Fixed) continue;
+                    string p = System.IO.Path.Combine(d.Name, "$Recycle.Bin", Sid);
+                    if (!System.IO.Directory.Exists(p)) continue;
+                    algumaPasta = true;
+                    using (var e = System.IO.Directory.EnumerateFileSystemEntries(p, "$R*").GetEnumerator()) if (e.MoveNext()) return true;
+                }
+                catch { }
+            }
+            if (algumaPasta) return false;
+            var i = new SHQUERYRBINFO(); i.cbSize = Marshal.SizeOf(i);   // sem acesso às pastas: pergunta ao Windows
             return SHQueryRecycleBin(null, ref i) == 0 && i.i64NumItems > 0;
         }
 
