@@ -1,5 +1,5 @@
 // Mac Skin Finder: navegador de arquivos no visual do Finder do macOS (abre com MacSkin.exe --finder [pasta]).
-// Barra lateral com vidro, abas (Ctrl+T), voltar/avançar (também nos botões do mouse), título, modos Lista/Ícones/Galeria,
+// Barra lateral com vidro, abas (Ctrl+T), voltar/avançar (também nos botões do mouse), título, modos Lista/Ícones/Colunas/Galeria,
 // busca, caminho embaixo (clicável e editável, para copiar e colar).
 // Arquivos de verdade do Windows: abrir, copiar/recortar/colar, arrastar, renomear, Lixeira, nova pasta,
 // Propriedades e "Mostrar no Explorador" para o que não estiver aqui.
@@ -47,6 +47,8 @@ namespace MacSkin
         public string SetaTexto { get { return aberta ? "" : ""; } }   // chevron para baixo / para a direita
         public Visibility SetaVis { get { return Expansivel && EhPasta ? Visibility.Visible : Visibility.Hidden; } }
         public Thickness Recuo { get { return new Thickness(Nivel * 18, 0, 0, 0); } }
+        public Visibility SetaColuna { get { return EhPasta ? Visibility.Visible : Visibility.Collapsed; } }   // "›" das pastas no modo Colunas
+        public override string ToString() { return Nome; }   // leitores de tela e digitar a inicial para pular até o item
         public event PropertyChangedEventHandler PropertyChanged;
         void Avisar(string p) { var h = PropertyChanged; if (h != null) h(this, new PropertyChangedEventArgs(p)); }
 
@@ -77,7 +79,8 @@ namespace MacSkin
         FrameworkElement limparLixo;
         Button bLimparLixo;
         Button voltar, avancar;
-        ToggleButton vLista, vIcones, vGaleria;
+        ToggleButton vLista, vIcones, vColunas, vGaleria;
+        StackPanel colunasPainel; ScrollViewer colunasRolagem;
         readonly ObservableCollection<Entrada> itens = new ObservableCollection<Entrada>();
         ICollectionView visao;
         string atual;
@@ -135,19 +138,29 @@ namespace MacSkin
             VigiarArrastoAba();
             voltar = (Button)w.FindName("voltar"); avancar = (Button)w.FindName("avancar");
             vLista = (ToggleButton)w.FindName("vLista"); vIcones = (ToggleButton)w.FindName("vIcones"); vGaleria = (ToggleButton)w.FindName("vGaleria");
+            vColunas = (ToggleButton)w.FindName("vColunas");
+            colunasPainel = (StackPanel)w.FindName("colunas"); colunasRolagem = (ScrollViewer)w.FindName("colunasRolagem");
 
             icones.Resources["LarguraBloco"] = 112.0; icones.Resources["TamIcone"] = 64.0;
             visao = CollectionViewSource.GetDefaultView(itens);
             lista.ItemsSource = visao; icones.ItemsSource = visao;
             Tema();
 
-            voltar.Click += delegate { if (pos > 0) { pos--; Navegar(historico[pos], false); } };
-            avancar.Click += delegate { if (pos < historico.Count - 1) { pos++; Navegar(historico[pos], false); } };
+            // pastas do histórico que sumiram (apagadas, renomeadas) são puladas
+            Func<int, int> existente = passo =>
+            {
+                for (int i = pos + passo; i >= 0 && i < historico.Count; i += passo)
+                    if (Virtual(historico[i]) || Directory.Exists(historico[i])) return i;
+                return -1;
+            };
+            voltar.Click += delegate { int i = existente(-1); if (i >= 0) { pos = i; Navegar(historico[pos], false); } };
+            avancar.Click += delegate { int i = existente(1); if (i >= 0) { pos = i; Navegar(historico[pos], false); } };
             limparLixo = (FrameworkElement)w.FindName("limparLixo"); bLimparLixo = (Button)w.FindName("bLimparLixo");
             bLimparLixo.Click += delegate { EsvaziarLixeira(); };
             vLista.Click += delegate { Modo("lista"); };
             vIcones.Click += delegate { Modo("icones"); };
             vGaleria.Click += delegate { Modo("galeria"); };
+            vColunas.Click += delegate { Modo("colunas"); };
             ((Button)w.FindName("mais")).Click += (s, e) => MenuMais((Button)s);
             ((Button)w.FindName("bMin")).Click += delegate { w.WindowState = WindowState.Minimized; };
             ((Button)w.FindName("bMax")).Click += delegate { w.WindowState = w.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; };
@@ -168,59 +181,12 @@ namespace MacSkin
             endereco.KeyDown += (s, e) =>
             {
                 if (e.Key == Key.Enter) { e.Handled = true; IrPara(endereco.Text); }
-                else if (e.Key == Key.Escape) { e.Handled = true; FecharCaminho(); lista.Focus(); }
+                else if (e.Key == Key.Escape) { e.Handled = true; FecharCaminho(); Controle().Focus(); }
             };
             endereco.LostKeyboardFocus += delegate { FecharCaminho(); };
-            busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) { buscaAuto.Stop(); BuscarTudo(busca.Text); } if (e.Key == Key.Escape) { busca.Text = ""; lista.Focus(); } };
+            busca.KeyDown += (s, e) => { if (e.Key == Key.Enter) { buscaAuto.Stop(); BuscarTudo(busca.Text); } if (e.Key == Key.Escape) { busca.Text = ""; Controle().Focus(); } };
 
-            foreach (var c in new ListBox[] { lista, icones })
-            {
-                c.MouseDoubleClick += (s, e) => { if (Sob(e) != null) AbrirSelecionados(); };
-                c.KeyDown += Teclas;
-                // Espaço: a lista usaria para selecionar, por isso vem antes (Preview)
-                c.PreviewKeyDown += (s, e) =>
-                {
-                    if (Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
-                    if ((e.Key == Key.Right || e.Key == Key.Left) && TeclaCascata(e.Key)) { e.Handled = true; return; }
-                    if (e.Key != Key.Space) return;
-                    AlternarPrevia(); e.Handled = true;
-                };
-                c.SelectionChanged += delegate
-                {
-                    AtualizarStatusSelecao();
-                    if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault());
-                    AvisarMudou();
-                };
-                c.PreviewMouseLeftButtonDown += AoPressar;
-                c.PreviewMouseMove += AoMoverLaco;
-                c.PreviewMouseMove += AoArrastar;
-                c.PreviewMouseLeftButtonUp += AoSoltarMouse;
-                c.LostMouseCapture += delegate { if (lacoAtivo) { lacoAtivo = false; lacoRet.Visibility = Visibility.Collapsed; } };
-                c.AllowDrop = true;
-                c.Drop += AoSoltar;
-                c.DragOver += (s, e) => { e.Effects = Efeito(e, DestinoSoltar(e)); e.Handled = true; };
-                c.ContextMenu = new ContextMenu();   // sem um menu inicial o evento abaixo não dispara
-                c.PreviewMouseRightButtonDown += (s, ev) =>
-                {
-                    var en = Sob(ev);
-                    if (en != null)
-                    {
-                        if (!c.SelectedItems.Contains(en))
-                        {
-                            c.SelectedItem = en;
-                        }
-                    }
-                    else
-                    {
-                        c.UnselectAll();
-                    }
-                };
-                c.ContextMenuOpening += (s, ev) =>
-                {
-                    ev.Handled = true;
-                    AbrirMenuContexto();
-                };
-            }
+            foreach (var c in new ListBox[] { lista, icones }) Ligar(c);
             lista.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler((s, e) =>
             {
                 var h = e.OriginalSource as GridViewColumnHeader;
@@ -279,9 +245,59 @@ namespace MacSkin
             AtualizarStatusSelecao();
         }
 
+        // abrir, teclado, seleção, laço, arrastar e menu: o mesmo em Lista, Ícones e em cada coluna do modo Colunas
+        void Ligar(ListBox c)
+        {
+            c.MouseDoubleClick += (s, e) => { if (Sob(e) != null) AbrirSelecionados(); };
+            c.KeyDown += Teclas;
+            // Espaço: a lista usaria para selecionar, por isso vem antes (Preview)
+            c.PreviewKeyDown += (s, e) =>
+            {
+                if (Keyboard.Modifiers != ModifierKeys.None || e.OriginalSource is TextBox) return;
+                if ((e.Key == Key.Right || e.Key == Key.Left) && TeclaCascata(e.Key)) { e.Handled = true; return; }
+                if (e.Key != Key.Space) return;
+                AlternarPrevia(); e.Handled = true;
+            };
+            c.SelectionChanged += delegate
+            {
+                AtualizarStatusSelecao();
+                if (previa != null && previa.Aberta) previa.Mostrar(Selecionados().LastOrDefault());
+                AvisarMudou();
+            };
+            c.PreviewMouseLeftButtonDown += AoPressar;
+            c.PreviewMouseMove += AoMoverLaco;
+            c.PreviewMouseMove += AoArrastar;
+            c.PreviewMouseLeftButtonUp += AoSoltarMouse;
+            c.LostMouseCapture += delegate { if (lacoAtivo) { lacoAtivo = false; lacoRet.Visibility = Visibility.Collapsed; } };
+            c.AllowDrop = true;
+            c.Drop += AoSoltar;
+            c.DragOver += (s, e) => { e.Effects = Efeito(e, DestinoSoltar(s, e)); e.Handled = true; };
+            c.ContextMenu = new ContextMenu();   // sem um menu inicial o evento abaixo não dispara
+            c.PreviewMouseRightButtonDown += (s, ev) =>
+            {
+                var en = Sob(ev);
+                if (en != null)
+                {
+                    if (!c.SelectedItems.Contains(en))
+                    {
+                        c.SelectedItem = en;
+                    }
+                }
+                else
+                {
+                    c.UnselectAll();
+                }
+            };
+            c.ContextMenuOpening += (s, ev) =>
+            {
+                ev.Handled = true;
+                AbrirMenuContexto();
+            };
+        }
+
         public void Mostrar()
         {
-            w.Show(); w.Activate(); lista.Focus();
+            w.Show(); w.Activate(); Controle().Focus();
             // aberto por outro processo (o Explorador trocado pelo Finder), o Windows deixa a janela atrás da que estava em foco
             w.Topmost = true; w.Topmost = false;
         }
@@ -324,6 +340,7 @@ namespace MacSkin
             r["Lateral"] = Comum.Cor(claro ? "#66F2F2F4" : "#59262628");
             r["Zebra"] = Comum.Cor(claro ? "#FFF4F4F6" : "#FF262626");
             r["Selecao"] = Comum.Cor(claro ? "#FF0063E1" : "#FF0A5BC4");
+            r["SelecaoInativa"] = Comum.Cor(claro ? "#FFDCDCE0" : "#FF3A3A3C");   // pasta aberta numa coluna que não está em foco (modo Colunas)
             r["SelecaoLateral"] = Comum.Cor(claro ? "#1F000000" : "#2EFFFFFF");
             r["Hover"] = Comum.Cor(claro ? "#14000000" : "#1FFFFFFF");
             r["Pilula"] = Comum.Cor(claro ? "#0F000000" : "#1AFFFFFF");
@@ -584,6 +601,7 @@ namespace MacSkin
             if (busca.Text.Length > 0) busca.Text = "";
             ativa.Pos = pos; MontarAbas();
             MarcarLateral(); MontarCaminho(); Vigiar();
+            if (modo == "colunas") SincronizarColunas();
             Carregar(destino, false);
             AvisarMudou();
         }
@@ -736,7 +754,7 @@ namespace MacSkin
         void IrPara(string texto)
         {
             string p = Environment.ExpandEnvironmentVariables(texto.Trim().Trim('"'));
-            FecharCaminho(); lista.Focus();
+            FecharCaminho(); Controle().Focus();
             if (p.Length == 0) return;
             if (p.Length == 2 && p[1] == ':') p += "\\";
             if (Directory.Exists(p)) Navegar(System.IO.Path.GetFullPath(p), true);
@@ -759,27 +777,44 @@ namespace MacSkin
         int geracao;
         void Carregar(string destino, bool manterSelecao)
         {
+            // a pasta aberta sumiu (apagada, renomeada ou movida): vai para a mais próxima que ainda existe
+            if (!Virtual(destino) && !Directory.Exists(destino) && Igual(destino, atual))
+            {
+                string p = destino;
+                do p = Pai(p); while (p != null && !Directory.Exists(p));
+                if (p != null) { Navegar(p, true); return; }
+            }
             int g = ++geracao;
             var antes = manterSelecao ? new HashSet<string>(Selecionados().Select(e => e.Caminho)) : null;
             Shell.LimparFila();
             Task.Factory.StartNew(() => Ler(destino)).ContinueWith(t =>
             {
                 if (g != geracao) return;   // o usuário já foi para outra pasta
-                itens.Clear();
-                foreach (var e in Ordem(t.Result))
+                var ctl = Controle();
+                bool foco = ctl.IsKeyboardFocusWithin;
+                sincronizando = true;   // no modo Colunas, a coluna só reage à seleção final, não ao esvaziar e encher
+                try
                 {
-                    e.Expansivel = e.EhPasta && !Virtual(destino);
-                    itens.Add(e);
-                    if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, false);   // refresh mantém as pastas abertas
+                    itens.Clear();
+                    foreach (var e in Ordem(t.Result))
+                    {
+                        e.Expansivel = e.EhPasta && !Virtual(destino);
+                        itens.Add(e);
+                        if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, false);   // refresh mantém as pastas abertas
+                    }
+                    PedirIcones();
+                    if (antes != null) foreach (var e in itens.Where(x => antes.Contains(x.Caminho))) ctl.SelectedItems.Add(e);
+                    if (selecionarDepois != null)
+                    {
+                        var alvo = itens.FirstOrDefault(x => string.Equals(x.Caminho, selecionarDepois, StringComparison.OrdinalIgnoreCase));
+                        selecionarDepois = null;
+                        if (alvo != null) { ctl.SelectedItem = alvo; ctl.ScrollIntoView(alvo); }
+                    }
+                    // as linhas foram refeitas: o foco volta para o item selecionado, senão as setas não andam
+                    if (foco) { if (ctl.SelectedItem != null) FocarItem(ctl, ctl.SelectedItem); else ctl.Focus(); }
                 }
-                PedirIcones();
-                if (antes != null) foreach (var e in itens.Where(x => antes.Contains(x.Caminho))) lista.SelectedItems.Add(e);
-                if (selecionarDepois != null)
-                {
-                    var alvo = itens.FirstOrDefault(x => string.Equals(x.Caminho, selecionarDepois, StringComparison.OrdinalIgnoreCase));
-                    selecionarDepois = null;
-                    if (alvo != null) { lista.SelectedItem = alvo; lista.ScrollIntoView(alvo); }
-                }
+                finally { sincronizando = false; }
+                if (modo == "colunas") { var col = colunas.LastOrDefault(x => x.Fixos == null); if (col != null) ReagirColuna(col); }
                 AtualizarStatusSelecao();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
@@ -860,7 +895,7 @@ namespace MacSkin
                 itens.Add(e);
                 if (e.Expansivel && abertos.Contains(e.Caminho)) Expandir(e, true);
             }
-            foreach (var e in itens.Where(x => sel.Contains(x.Caminho))) lista.SelectedItems.Add(e);
+            foreach (var e in itens.Where(x => sel.Contains(x.Caminho))) Controle().SelectedItems.Add(e);
         }
 
         // ---------- cascata (setinha / teclas → ←) ----------
@@ -906,6 +941,7 @@ namespace MacSkin
         // → abre a pasta (se já aberta, desce para o primeiro item dela); ← fecha (se já fechada, sobe para a pasta de cima)
         bool TeclaCascata(Key k)
         {
+            if (modo == "colunas") return TeclaColuna(k);
             if (modo != "lista") return false;
             var sel = Selecionados().ToList();
             if (sel.Count == 0) return false;
@@ -953,32 +989,86 @@ namespace MacSkin
             return i;
         }
 
-        // pasta do Mac desenhada em vetor: fundo com a aba, folha de papel saindo por cima e frente em degradê
-        static ImageSource pastaMac;
-        static ImageSource PastaMac()
+        // pasta do Mac (estilo Big Sur em diante), copiada de um print do Finder: fundo azul com a aba à esquerda, uma folha
+        // de papel branca aparecendo fina entre o fundo e a frente, e a frente azul-clara em degradê com filete claro em cima. É desenhada já no tamanho exato em pixels da tela (com a escala do DPI) e com as
+        // bordas retas caindo em pixel inteiro: um vetor esticado até 28 px caía em meio pixel e saía borrado.
+        static readonly Dictionary<int, ImageSource> pastaMac = new Dictionary<int, ImageSource>();
+        static double escalaTela;
+        static double EscalaTela()
         {
-            if (pastaMac == null)
+            if (escalaTela <= 0)
             {
-                string x = "<DrawingImage xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><DrawingImage.Drawing><DrawingGroup>"
-                    + "<GeometryDrawing Brush='Transparent' Geometry='M0,0 H100 V100 H0 Z'/>"
-                    + "<GeometryDrawing Geometry='M5,22 Q5,12 15,12 H37 Q42,12 45,16 L49,21 H88 Q96,21 96,29 V80 Q96,90 86,90 H15 Q5,90 5,80 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#3C9BD6' Offset='0'/><GradientStop Color='#2F86C4' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
-                    + "<GeometryDrawing Brush='#33000000' Geometry='M12,30 H89 V50 H12 Z'/>"
-                    + "<GeometryDrawing Geometry='M13,22 Q13,19 16,19 H85 Q88,19 88,22 V60 H13 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#FFFFFF' Offset='0'/><GradientStop Color='#E4E8EC' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
-                    + "<GeometryDrawing Geometry='M4,40 Q4,32 12,32 H89 Q97,32 97,40 V80 Q97,90 87,90 H14 Q4,90 4,80 Z'><GeometryDrawing.Brush><LinearGradientBrush StartPoint='0,0' EndPoint='0,1'><GradientStop Color='#84D4F8' Offset='0'/><GradientStop Color='#4DB4EA' Offset='0.45'/><GradientStop Color='#35A0DC' Offset='1'/></LinearGradientBrush></GeometryDrawing.Brush></GeometryDrawing>"
-                    + "<GeometryDrawing Geometry='M5,40 Q5,33 12,33 H89 Q96,33 96,40'><GeometryDrawing.Pen><Pen Brush='#66FFFFFF' Thickness='1.2'/></GeometryDrawing.Pen></GeometryDrawing>"
-                    + "</DrawingGroup></DrawingImage.Drawing></DrawingImage>";
-                var d = (DrawingImage)System.Windows.Markup.XamlReader.Parse(x);
-                d.Freeze();
-                pastaMac = d;
+                try { using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) escalaTela = g.DpiX / 96.0; } catch { }
+                if (escalaTela <= 0) escalaTela = 1;
             }
-            return pastaMac;
+            return escalaTela;
+        }
+        static Brush Degrade(params string[] cores)
+        {
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+            for (int i = 0; i < cores.Length; i++) g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(cores[i]), cores.Length == 1 ? 0 : i / (double)(cores.Length - 1)));
+            g.Freeze(); return g;
+        }
+        public static ImageSource PastaMac(double tam)
+        {
+            double esc = EscalaTela();
+            int S = Math.Max(12, (int)Math.Round(tam * esc));
+            ImageSource pronto;
+            if (pastaMac.TryGetValue(S, out pronto)) return pronto;
+
+            double L = Math.Max(1, Math.Round(S * 0.035)), R = S - L;
+            double abaTopo = Math.Round(S * 0.13), fundoTopo = Math.Round(S * 0.20), frenteTopo = Math.Round(S * 0.31), B = Math.Round(S * 0.87);
+            double abaFim = Math.Round(S * 0.39), rampa = Math.Max(1, fundoTopo - abaTopo);
+            double r = Math.Max(1.5, S * 0.065), px = Math.Max(1, Math.Round(S / 40.0));   // px: espessura do filete claro e da sombra (1 px até ~60 px)
+
+            var fundo = new StreamGeometry();
+            using (var c = fundo.Open())
+            {
+                c.BeginFigure(new Point(L, B - r), true, true);
+                c.LineTo(new Point(L, abaTopo + r), true, true);
+                c.ArcTo(new Point(L + r, abaTopo), new Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
+                c.LineTo(new Point(abaFim, abaTopo), true, true);
+                c.BezierTo(new Point(abaFim + rampa * 0.6, abaTopo), new Point(abaFim + rampa * 0.6, fundoTopo), new Point(abaFim + rampa * 1.3, fundoTopo), true, true);
+                c.LineTo(new Point(R - r, fundoTopo), true, true);
+                c.ArcTo(new Point(R, fundoTopo + r), new Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
+                c.LineTo(new Point(R, B - r), true, true);
+                c.ArcTo(new Point(R - r, B), new Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
+                c.LineTo(new Point(L + r, B), true, true);
+                c.ArcTo(new Point(L, B - r), new Size(r, r), 0, false, SweepDirection.Clockwise, true, true);
+            }
+            fundo.Freeze();
+
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.PushTransform(new ScaleTransform(1 / esc, 1 / esc));   // o desenho é em pixels da tela; o bitmap com DPI alto multiplica de volta
+                // fundo com a aba: filete claro na borda de cima e o corpo um pixel abaixo, recortado pelo próprio contorno
+                dc.DrawGeometry(Degrade("#FFA2D6F2", "#FF8CC6EA"), null, fundo);
+                dc.PushClip(fundo);
+                dc.PushTransform(new TranslateTransform(0, px));
+                dc.DrawGeometry(Degrade("#FF6CB4E1", "#FF5EA8D8", "#FF5297C6"), null, fundo);
+                dc.Pop(); dc.Pop();
+                // folha de papel branca: recuada dos lados, começa um pouco abaixo do fundo e some atrás da frente
+                double recuo = Math.Max(2, Math.Round(S * 0.055)), folhaTopo = Math.Min(frenteTopo - 2 * px, fundoTopo + Math.Max(2, Math.Round(S * 0.05)));
+                double rf = Math.Max(1, r * 0.6);
+                dc.DrawRoundedRectangle(Degrade("#FFFFFFFF", "#FFEFF4F8"), null, new Rect(L + recuo, folhaTopo, R - L - 2 * recuo, frenteTopo - folhaTopo + r), rf, rf);
+                // frente: filete claro, corpo um pixel abaixo e a borda de baixo um tom mais escura
+                dc.DrawRoundedRectangle(Degrade("#FFB3E1F8", "#FF9AD3F3"), null, new Rect(L, frenteTopo, R - L, B - frenteTopo), r, r);
+                dc.DrawRoundedRectangle(Degrade("#FF56A0CE", "#FF4E94C0"), null, new Rect(L, frenteTopo + px, R - L, B - frenteTopo - px), r, r);
+                dc.DrawRoundedRectangle(Degrade("#FF8DCEF2", "#FF80C5EE", "#FF72B8E4", "#FF60A5D0"), null, new Rect(L, frenteTopo + px, R - L, B - frenteTopo - 2 * px), r, r);
+            }
+            var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(S, S, 96 * esc, 96 * esc, PixelFormats.Pbgra32);
+            bmp.Render(dv);
+            bmp.Freeze();
+            pastaMac[S] = bmp;
+            return bmp;
         }
 
-        // ícone Mac de uma pasta; null se o arquivo do ícone não estiver instalado
-        public static ImageSource IconePasta(string caminho)
+        // ícone Mac de uma pasta no tamanho em que vai aparecer (em unidades da tela); null se o ícone não estiver instalado
+        public static ImageSource IconePasta(string caminho, double tam = 28)
         {
             string esp;
-            return pastasEspeciais.TryGetValue(caminho, out esp) ? IconeMac(esp) : PastaMac();
+            return pastasEspeciais.TryGetValue(caminho, out esp) ? IconeMac(esp) : PastaMac(tam);
         }
 
         void PedirIcones() { PedirIcones(itens.ToList()); }
@@ -991,8 +1081,8 @@ namespace MacSkin
                 var en = e;
                 if (en.EhPasta)
                 {
-                    var mac = IconePasta(en.Caminho);
-                    if (mac != null) { en.Icone = mac; en.Grande = mac; continue; }
+                    var mac = IconePasta(en.Caminho, modo == "colunas" ? 18 : 28);
+                    if (mac != null) { en.Icone = mac; en.Grande = IconePasta(en.Caminho, modo == "galeria" ? 160 : 64); continue; }
                 }
                 Shell.PedirImagem(en.Caminho, px, img => { if (g != geracao) return; if (px <= 32) en.Icone = img; else { en.Grande = img; if (en.Icone == null) en.Icone = img; } });
                 if (px > 32 && en.Icone == null) Shell.PedirImagem(en.Caminho, 32, img => { if (g == geracao && en.Icone == null) en.Icone = img; });
@@ -1002,14 +1092,298 @@ namespace MacSkin
         // ---------- modos de exibição ----------
         void Modo(string m)
         {
+            string antes = modo;
             modo = m;
-            vLista.IsChecked = m == "lista"; vIcones.IsChecked = m == "icones"; vGaleria.IsChecked = m == "galeria";
+            vLista.IsChecked = m == "lista"; vIcones.IsChecked = m == "icones"; vGaleria.IsChecked = m == "galeria"; vColunas.IsChecked = m == "colunas";
             lista.Visibility = m == "lista" ? Visibility.Visible : Visibility.Collapsed;
-            icones.Visibility = m == "lista" ? Visibility.Collapsed : Visibility.Visible;
+            icones.Visibility = m == "icones" || m == "galeria" ? Visibility.Visible : Visibility.Collapsed;
+            colunasRolagem.Visibility = m == "colunas" ? Visibility.Visible : Visibility.Collapsed;
             // o XAML lê estes tamanhos (DynamicResource) nos modos Ícones e Galeria
             icones.Resources["LarguraBloco"] = m == "galeria" ? 190.0 : 112.0;
             icones.Resources["TamIcone"] = m == "galeria" ? 160.0 : 64.0;
+            if (m == "colunas" && antes != "colunas")
+            {
+                sincronizando = true;
+                Truncar(0); colAtiva = null;
+                NovaColuna(atual).Lb.ItemsSource = visao;
+                sincronizando = false;
+                // as pastas abertas em cascata na Lista não fazem sentido aqui: relê a pasta sem elas
+                if (abertos.Count > 0) { abertos.Clear(); Carregar(atual, false); }
+                w.Dispatcher.BeginInvoke(new Action(() => Controle().Focus()), DispatcherPriority.Loaded);
+            }
+            else if (m != "colunas" && antes == "colunas") { sincronizando = true; Truncar(0); sincronizando = false; }
             PedirIcones();
+            AtualizarStatusSelecao();
+        }
+
+        // ---------- modo Colunas ----------
+        // Como no Finder do Mac: clicar numa pasta abre o conteúdo dela na coluna ao lado, e assim por diante; clicar num
+        // arquivo mostra a prévia na última coluna. A pasta atual é sempre a da última coluna de pasta, e essa coluna usa a
+        // mesma coleção dos outros modos (itens): busca, atualização automática e operações de arquivo valem igual. As
+        // colunas da esquerda guardam o que mostravam (Fixos) até voltarem a ser a última.
+        class Coluna { public string Pasta; public ListBox Lb; public List<Entrada> Fixos; }
+        readonly List<Coluna> colunas = new List<Coluna>();
+        Coluna colAtiva;   // a coluna do último clique/foco: é dela a seleção que Copiar, Apagar, Espaço etc. usam
+        FrameworkElement previaCol; string previaDe;
+        bool sincronizando;   // mexendo nas colunas por código: a seleção que muda aí não abre nem fecha colunas
+        const double LarguraColuna = 250;
+
+        static bool Igual(string a, string b)
+        {
+            if (string.Equals((a ?? "").TrimEnd('\\'), (b ?? "").TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true;
+            // nome curto do DOS (C:\Users\ROBERT~1.REZ) e o longo são a mesma pasta
+            if (a == null || b == null || (a.IndexOf('~') < 0 && b.IndexOf('~') < 0)) return false;
+            return string.Equals(Longo(a).TrimEnd('\\'), Longo(b).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+        }
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int GetLongPathName(string curto, System.Text.StringBuilder longo, int tamanho);
+        static string Longo(string p)
+        {
+            var sb = new System.Text.StringBuilder(1024);
+            return GetLongPathName(p, sb, sb.Capacity) > 0 ? sb.ToString() : p;
+        }
+        static string Pai(string p)
+        {
+            if (p == null || Virtual(p)) return null;
+            try { var d = Directory.GetParent(p.TrimEnd('\\')); return d == null ? null : d.FullName; } catch { return null; }
+        }
+
+        // a lista que mostra a pasta atual no modo em uso
+        ListBox Controle()
+        {
+            if (modo == "lista") return lista;
+            if (modo != "colunas") return icones;
+            var c = colunas.LastOrDefault(x => x.Fixos == null);
+            return c != null ? c.Lb : lista;
+        }
+
+        Coluna ColunaAtiva()
+        {
+            if (colAtiva != null && colunas.Contains(colAtiva)) return colAtiva;
+            return colunas.LastOrDefault(x => x.Fixos == null) ?? colunas.LastOrDefault();
+        }
+
+        // no modo Colunas, Colar e Nova Pasta agem na coluna em foco, ao lado do que está selecionado (como no Mac), e não
+        // dentro da pasta selecionada, que é a atual: essa coluna passa a ser a pasta atual, sem seleção
+        void PastaParaCriar()
+        {
+            if (modo != "colunas") return;
+            string p = PastaDoFundo();
+            if (Igual(p, atual)) return;
+            int k = colunas.FindIndex(x => Igual(x.Pasta, p));
+            if (k < 0) return;
+            sincronizando = true;
+            try { Truncar(k + 1); colunas[k].Lb.UnselectAll(); }
+            finally { sincronizando = false; }
+            Navegar(p, true);
+        }
+
+        // pasta do menu do vazio (Nova Pasta, Colar...): no modo Colunas, a da coluna clicada
+        string PastaDoFundo()
+        {
+            var col = modo == "colunas" ? ColunaAtiva() : null;
+            return col != null ? col.Pasta : atual;
+        }
+
+        Coluna NovaColuna(string pasta)
+        {
+            var lb = new ListBox
+            {
+                Width = LarguraColuna, Background = Brushes.Transparent, BorderBrush = (Brush)w.Resources["Borda"], BorderThickness = new Thickness(0, 0, 1, 0),
+                SelectionMode = SelectionMode.Extended, ItemContainerStyle = (Style)w.Resources["Celula"], Padding = new Thickness(0, 4, 0, 4),
+                IsSynchronizedWithCurrentItem = false, FocusVisualStyle = null
+            };
+            ScrollViewer.SetHorizontalScrollBarVisibility(lb, ScrollBarVisibility.Disabled);
+            VirtualizingPanel.SetIsVirtualizing(lb, true);
+            VirtualizingPanel.SetVirtualizationMode(lb, VirtualizationMode.Recycling);
+            var c = new Coluna { Pasta = pasta, Lb = lb };
+            Ligar(lb);
+            // a reação vem depois do clique terminar: trocar a fonte da lista no meio do SelectionChanged dela atrapalha o clique
+            lb.SelectionChanged += delegate { if (!sincronizando) w.Dispatcher.BeginInvoke(new Action(() => ReagirColuna(c)), DispatcherPriority.Input); };
+            lb.PreviewMouseDown += delegate { colAtiva = c; };
+            lb.GotKeyboardFocus += delegate { colAtiva = c; };
+            colunas.Add(c);
+            colunasPainel.Children.Add(lb);
+            return c;
+        }
+
+        // tira as colunas a partir da posição n (e a prévia)
+        void Truncar(int n)
+        {
+            TirarPreviaColuna();
+            while (colunas.Count > n)
+            {
+                var c = colunas[colunas.Count - 1];
+                colunas.RemoveAt(colunas.Count - 1);
+                colunasPainel.Children.Remove(c.Lb);
+                c.Lb.ItemsSource = null;
+                if (colAtiva == c) colAtiva = null;
+            }
+        }
+
+        // a coluna deixa de ser a da pasta atual: passa a guardar o que mostra, com a mesma seleção
+        void Congelar(Coluna c)
+        {
+            var sel = c.Lb.SelectedItems.Cast<Entrada>().ToList();
+            bool foco = c.Lb.IsKeyboardFocusWithin;
+            c.Fixos = visao.Cast<Entrada>().ToList();
+            c.Lb.ItemsSource = c.Fixos;
+            foreach (var e in sel) c.Lb.SelectedItems.Add(e);
+            // as linhas foram recriadas: sem isto o foco se perde e ↑ ↓ param de andar depois do clique
+            if (foco && sel.Count > 0) FocarItem(c.Lb, sel[sel.Count - 1]);
+        }
+
+        // chamado pelo Navegar (atual já trocado): acerta as colunas para terminarem na pasta atual
+        void SincronizarColunas()
+        {
+            sincronizando = true;
+            try
+            {
+                int k = colunas.FindIndex(x => Igual(x.Pasta, atual));
+                if (k >= 0)
+                {
+                    // voltou para uma pasta que já está à vista (voltar, clique num arquivo de uma coluna da esquerda...)
+                    Truncar(k + 1);
+                    var c = colunas[k];
+                    if (c.Fixos != null)
+                    {
+                        // entra com o que já mostrava, sem piscar; o Carregar refresca e repõe a seleção
+                        var sel = c.Lb.SelectedItems.Cast<Entrada>().ToList();
+                        bool foco = c.Lb.IsKeyboardFocusWithin;
+                        itens.Clear(); foreach (var e in c.Fixos) itens.Add(e);
+                        c.Fixos = null; c.Lb.ItemsSource = visao;
+                        foreach (var e in sel) c.Lb.SelectedItems.Add(e);
+                        if (foco && sel.Count > 0) FocarItem(c.Lb, sel[sel.Count - 1]);
+                        if (sel.Count == 1 && selecionarDepois == null) selecionarDepois = sel[0].Caminho;   // quem renomeou já pediu o nome novo
+                    }
+                }
+                else
+                {
+                    var ult = colunas.LastOrDefault();
+                    if (ult != null && Igual(Pai(atual), ult.Pasta)) { if (ult.Fixos == null) Congelar(ult); }   // subpasta da última: coluna nova ao lado
+                    else Truncar(0);   // outro lugar (barra lateral, caminho, outra aba): começa do zero
+                    itens.Clear();
+                    NovaColuna(atual).Lb.ItemsSource = visao;
+                }
+            }
+            finally { sincronizando = false; }
+            RolarColunas();
+        }
+
+        // a seleção de uma coluna mudou: pasta abre a coluna seguinte; arquivo (ou nada) fecha as da direita e mostra a prévia
+        void ReagirColuna(Coluna c)
+        {
+            if (sincronizando || modo != "colunas" || !colunas.Contains(c)) return;
+            int k = colunas.IndexOf(c);
+            var sel = c.Lb.SelectedItems.Cast<Entrada>().ToList();
+            if (sel.Count == 1 && sel[0].EhPasta && !Virtual(c.Pasta))
+            {
+                string p = sel[0].Caminho;
+                if (k + 1 < colunas.Count && Igual(colunas[k + 1].Pasta, p)) return;   // já aberta ao lado
+                if (!Directory.Exists(p)) return;
+                Truncar(k + 1);
+                NavegarColuna(p);
+            }
+            else
+            {
+                if (sel.Count == 1 && k == colunas.Count - 1 && previaCol != null && previaDe == sel[0].Caminho) return;   // mesma prévia
+                Truncar(k + 1);
+                if (!Igual(atual, c.Pasta)) NavegarColuna(c.Pasta);
+                if (sel.Count == 1) MostrarPreviaColuna(sel[0]);
+            }
+            RolarColunas();
+        }
+
+        // andar pelas pastas de uma mesma coluna troca a última posição do histórico em vez de empilhar uma por pasta
+        void NavegarColuna(string destino)
+        {
+            string paiDestino = Pai(destino);
+            if (pos >= 0 && paiDestino != null && Igual(Pai(historico[pos]), paiDestino) && !Igual(historico[pos], destino))
+            {
+                historico[pos] = destino;
+                Navegar(destino, false);
+            }
+            else Navegar(destino, true);
+        }
+
+        void RolarColunas()
+        {
+            w.Dispatcher.BeginInvoke(new Action(() => colunasRolagem.ScrollToRightEnd()), DispatcherPriority.Loaded);
+        }
+
+        void TirarPreviaColuna()
+        {
+            if (previaCol == null) return;
+            colunasPainel.Children.Remove(previaCol);
+            previaCol = null; previaDe = null;
+        }
+
+        // última coluna com a prévia do arquivo: miniatura grande, nome, tipo, tamanho e datas
+        void MostrarPreviaColuna(Entrada e)
+        {
+            TirarPreviaColuna();
+            var texto = (Brush)w.Resources["Texto"]; var sec = (Brush)w.Resources["TextoSec"];
+            var img = new Image { Width = 200, Height = 200, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 28, 0, 14), Source = e.Grande ?? e.Icone };
+            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+            var sp = new StackPanel { Margin = new Thickness(20, 0, 20, 20) };
+            sp.Children.Add(img);
+            sp.Children.Add(new TextBlock { Text = e.Nome, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = texto, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            sp.Children.Add(new TextBlock { Text = e.EhPasta ? e.Tipo : e.Tipo + " · " + e.TamanhoTexto, FontSize = 12, Foreground = sec, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 18) });
+            sp.Children.Add(new TextBlock { Text = "Informações", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = texto, Margin = new Thickness(0, 0, 0, 6) });
+            Action<string, string> linha = (rotulo, valor) =>
+            {
+                var d = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+                var r = new TextBlock { Text = rotulo, FontSize = 12, Foreground = sec };
+                DockPanel.SetDock(r, System.Windows.Controls.Dock.Left);
+                d.Children.Add(r);
+                d.Children.Add(new TextBlock { Text = valor, FontSize = 12, Foreground = texto, TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(12, 0, 0, 0) });
+                sp.Children.Add(d);
+            };
+            if (atual == Lixo) linha("Apagado em", e.DataTexto);
+            else
+            {
+                try { if (!Virtual(e.Caminho)) linha("Criado", DataMac(e.EhPasta ? Directory.GetCreationTime(e.Caminho) : File.GetCreationTime(e.Caminho))); } catch { }
+                linha("Modificado", e.DataTexto);
+            }
+            var b = new Border { Width = 300, Background = Brushes.Transparent, Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
+            b.MouseLeftButtonDown += (s, ev) => { if (ev.ClickCount == 2) AbrirSelecionados(); };   // duplo clique na prévia abre o arquivo
+            previaCol = b; previaDe = e.Caminho;
+            colunasPainel.Children.Add(b);
+            if (e.EhPasta) { var m = IconePasta(e.Caminho, 200); if (m != null) img.Source = m; }
+            else Shell.PedirImagem(e.Caminho, 256, i => { if (previaCol == b) img.Source = i; });
+            RolarColunas();
+        }
+
+        static void FocarItem(ListBox lb, object item)
+        {
+            lb.ScrollIntoView(item); lb.UpdateLayout();
+            var ct = lb.ItemContainerGenerator.ContainerFromItem(item) as ListBoxItem;
+            if (ct != null) ct.Focus(); else lb.Focus();
+        }
+
+        // → entra na coluna seguinte (a pasta selecionada); ← volta para a coluna anterior e fecha as da direita
+        bool TeclaColuna(Key k)
+        {
+            var col = ColunaAtiva();
+            if (col == null) return false;
+            int i = colunas.IndexOf(col);
+            if (k == Key.Right)
+            {
+                var s = col.Lb.SelectedItems.Cast<Entrada>().ToList();
+                if (s.Count == 1 && s[0].EhPasta && i + 1 < colunas.Count && Igual(colunas[i + 1].Pasta, s[0].Caminho) && colunas[i + 1].Lb.Items.Count > 0)
+                {
+                    var prox = colunas[i + 1];
+                    prox.Lb.SelectedItem = prox.Lb.Items[0];
+                    FocarItem(prox.Lb, prox.Lb.Items[0]);
+                }
+            }
+            else if (i > 0)
+            {
+                var ant = colunas[i - 1];
+                col.Lb.UnselectAll();
+                if (ant.Lb.SelectedItem != null) FocarItem(ant.Lb, ant.Lb.SelectedItem); else ant.Lb.Focus();
+            }
+            return true;
         }
 
         // ---------- busca ----------
@@ -1114,7 +1488,9 @@ namespace MacSkin
         // ---------- abrir ----------
         IEnumerable<Entrada> Selecionados()
         {
-            var c = modo == "lista" ? (System.Collections.IList)lista.SelectedItems : icones.SelectedItems;
+            System.Collections.IList c;
+            if (modo == "colunas") { var col = ColunaAtiva(); if (col == null) return new List<Entrada>(); c = col.Lb.SelectedItems; }
+            else c = modo == "lista" ? (System.Collections.IList)lista.SelectedItems : icones.SelectedItems;
             return c.Cast<Entrada>().ToList();
         }
 
@@ -1122,8 +1498,9 @@ namespace MacSkin
         void AtualizarStatusSelecao()
         {
             if (statusSelecao == null) return;
-            int n = modo == "lista" ? lista.SelectedItems.Count : icones.SelectedItems.Count;
-            int total = visao == null ? itens.Count : visao.Cast<object>().Count();
+            int n = Selecionados().Count();
+            var col = modo == "colunas" ? ColunaAtiva() : null;
+            int total = col != null ? col.Lb.Items.Count : visao == null ? itens.Count : visao.Cast<object>().Count();
             string itensTexto = total == 1 ? "1 item" : total.ToString("N0", PtBr) + " itens";
             statusSelecao.Text = n == 0 ? itensTexto : itensTexto + " | " + (n == 1 ? "1 item selecionado" : n.ToString("N0", PtBr) + " itens selecionados");
             if (bLimparLixo != null) bLimparLixo.IsEnabled = itens.Count > 0;
@@ -1212,7 +1589,8 @@ namespace MacSkin
 
         void MoverSelecao(int d)
         {
-            ListBox c = modo == "lista" ? lista : icones;
+            var col = modo == "colunas" ? ColunaAtiva() : null;
+            ListBox c = col != null ? col.Lb : modo == "lista" ? lista : icones;
             int i = c.SelectedIndex + d;
             if (c.SelectedIndex < 0 || i < 0 || i >= c.Items.Count) return;
             c.SelectedIndex = i;
@@ -1259,11 +1637,11 @@ namespace MacSkin
                     () => AlternarPrevia()
                 );
             }
-            else if (!Virtual(atual) && Directory.Exists(atual))
+            else if (!Virtual(PastaDoFundo()) && Directory.Exists(PastaDoFundo()))
             {
                 ShellMenu.MostrarMenuFundo(
                     hwnd,
-                    atual,
+                    PastaDoFundo(),
                     () => Carregar(atual, false),
                     NovaPasta,
                     Colar,
@@ -1449,7 +1827,9 @@ namespace MacSkin
 
         void Colar()
         {
-            if (Virtual(atual) || !Clipboard.ContainsFileDropList()) return;
+            if (!Clipboard.ContainsFileDropList()) return;
+            PastaParaCriar();
+            if (Virtual(atual)) return;
             bool mover = false;
             var ms = Clipboard.GetData("Preferred DropEffect") as MemoryStream;
             if (ms != null) { var b = new byte[4]; ms.Read(b, 0, 4); mover = (BitConverter.ToInt32(b, 0) & 2) != 0; }
@@ -1500,6 +1880,7 @@ namespace MacSkin
 
         void NovaPasta()
         {
+            PastaParaCriar();
             if (Virtual(atual)) return;
             try
             {
@@ -1508,8 +1889,11 @@ namespace MacSkin
                 Carregar(atual, false);
                 Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
                 {
-                    var e = itens.FirstOrDefault(x => x.Caminho == p);
-                    if (e != null) { lista.SelectedItem = e; icones.SelectedItem = e; Renomear(); }
+                    var e = itens.FirstOrDefault(x => Igual(x.Caminho, p));
+                    if (e == null) return;
+                    lista.SelectedItem = e; icones.SelectedItem = e;
+                    if (modo == "colunas") { var ctl = Controle(); ctl.SelectedItems.Clear(); ctl.SelectedItem = e; colAtiva = colunas.FirstOrDefault(x => x.Lb == ctl); }
+                    Renomear();
                 }), DispatcherPriority.ApplicationIdle);
             }
             catch (Exception ex) { MessageBox.Show(w, ex.Message, "Finder"); }
@@ -1526,6 +1910,7 @@ namespace MacSkin
             {
                 string alvo = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(e.Caminho), novo);
                 if (e.EhPasta) Directory.Move(e.Caminho, alvo); else File.Move(e.Caminho, alvo);
+                selecionarDepois = alvo;   // continua selecionado com o nome novo
                 Carregar(atual, false);
             }
             catch (Exception ex) { MessageBox.Show(w, ex.Message, "Finder"); }
@@ -1734,13 +2119,15 @@ namespace MacSkin
         }
 
         // soltar sobre uma pasta da lista vai para ela; no vazio, para a pasta atual
-        string DestinoSoltar(DragEventArgs e)
+        string DestinoSoltar(object s, DragEventArgs e)
         {
             if (atual == Lixo) return Lixo;   // soltar na janela da Lixeira manda para a Lixeira
             var d = e.OriginalSource as DependencyObject;
             while (d != null && !(d is ListBoxItem)) d = d is Visual ? VisualTreeHelper.GetParent(d) : null;
             var en = d == null ? null : ((ListBoxItem)d).DataContext as Entrada;
-            return en != null && en.EhPasta ? en.Caminho : atual;
+            if (en != null && en.EhPasta) return en.Caminho;
+            var col = colunas.FirstOrDefault(x => x.Lb == s);   // no vazio de uma coluna: a pasta daquela coluna
+            return col != null ? col.Pasta : atual;
         }
 
         // igual ao Explorador: mesmo disco move, outro disco copia; Shift força mover, Ctrl força copiar
@@ -1754,7 +2141,7 @@ namespace MacSkin
             return o != null && string.Equals(System.IO.Path.GetPathRoot(o), System.IO.Path.GetPathRoot(destino), StringComparison.OrdinalIgnoreCase) ? DragDropEffects.Move : DragDropEffects.Copy;
         }
 
-        void AoSoltar(object s, DragEventArgs e) { ReceberArquivos(e, DestinoSoltar(e)); }
+        void AoSoltar(object s, DragEventArgs e) { ReceberArquivos(e, DestinoSoltar(s, e)); }
 
         void ReceberArquivos(DragEventArgs e, string destino)
         {
@@ -1910,6 +2297,27 @@ namespace MacSkin
         </ControlTemplate.Triggers>
       </ControlTemplate></Setter.Value></Setter>
     </Style>
+    <!-- linha de uma coluna do modo Colunas: ícone, nome e › nas pastas; pasta aberta fica cinza quando a coluna não tem o foco -->
+    <Style x:Key='Celula' TargetType='ListBoxItem'>
+      <Setter Property='Foreground' Value='{DynamicResource Texto}'/>
+      <Setter Property='Height' Value='28'/>
+      <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListBoxItem'>
+        <Border x:Name='b' Background='Transparent' CornerRadius='5' Margin='6,0' Padding='6,0'>
+          <DockPanel>
+            <TextBlock DockPanel.Dock='Right' Text='&#xE76C;' FontFamily='{StaticResource Ico}' FontSize='9' Margin='6,0,0,0' VerticalAlignment='Center' Opacity='0.6' Visibility='{Binding SetaColuna}'/>
+            <Image Source='{Binding Icone}' Width='18' Height='18' Margin='0,0,8,0' VerticalAlignment='Center' RenderOptions.BitmapScalingMode='HighQuality'/>
+            <TextBlock Text='{Binding Nome}' VerticalAlignment='Center' TextTrimming='CharacterEllipsis'/>
+          </DockPanel></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property='IsMouseOver' Value='True'><Setter TargetName='b' Property='Background' Value='{DynamicResource Hover}'/></Trigger>
+          <Trigger Property='IsSelected' Value='True'><Setter TargetName='b' Property='Background' Value='{DynamicResource Selecao}'/><Setter Property='Foreground' Value='White'/></Trigger>
+          <MultiTrigger>
+            <MultiTrigger.Conditions><Condition Property='IsSelected' Value='True'/><Condition Property='Selector.IsSelectionActive' Value='False'/></MultiTrigger.Conditions>
+            <Setter TargetName='b' Property='Background' Value='{DynamicResource SelecaoInativa}'/><Setter Property='Foreground' Value='{DynamicResource Texto}'/></MultiTrigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
 " + Rolagem + @"
   </Window.Resources>
 
@@ -1958,6 +2366,8 @@ namespace MacSkin
           <StackPanel Orientation='Horizontal'>
             <ToggleButton x:Name='vIcones' Style='{StaticResource Plano}' ToolTip='Ícones'><TextBlock FontFamily='{StaticResource Ico}' Text='&#xF0E2;' FontSize='13'/></ToggleButton>
             <ToggleButton x:Name='vLista' Style='{StaticResource Plano}' ToolTip='Lista' IsChecked='True'><TextBlock FontFamily='{StaticResource Ico}' Text='&#xE8FD;' FontSize='13'/></ToggleButton>
+            <ToggleButton x:Name='vColunas' Style='{StaticResource Plano}' ToolTip='Colunas'><Path Width='16' Height='14' Stretch='None' Stroke='{DynamicResource Texto}' StrokeThickness='1.2' SnapsToDevicePixels='True'
+              Data='M1.5,1.5 H14.5 V12.5 H1.5 Z M5.8,1.5 V12.5 M10.2,1.5 V12.5'/></ToggleButton>
             <ToggleButton x:Name='vGaleria' Style='{StaticResource Plano}' ToolTip='Galeria'><TextBlock FontFamily='{StaticResource Ico}' Text='&#xE8B9;' FontSize='13'/></ToggleButton>
           </StackPanel></Border>
         <Border x:Name='limparLixo' DockPanel.Dock='Right' Visibility='Collapsed' Background='{DynamicResource Pilula}' CornerRadius='15' VerticalAlignment='Center' Padding='2' Margin='0,0,8,0'>
@@ -1987,6 +2397,10 @@ namespace MacSkin
                ItemContainerStyle='{StaticResource Bloco}' ScrollViewer.HorizontalScrollBarVisibility='Disabled'>
         <ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
       </ListBox>
+      <!-- colunas (uma por pasta, lado a lado; rola na horizontal quando não cabem) -->
+      <ScrollViewer x:Name='colunasRolagem' Grid.Row='2' Visibility='Collapsed' HorizontalScrollBarVisibility='Auto' VerticalScrollBarVisibility='Disabled'>
+        <StackPanel x:Name='colunas' Orientation='Horizontal'/>
+      </ScrollViewer>
       <!-- aviso da busca: procurando / nada encontrado -->
       <StackPanel x:Name='avisoBusca' Grid.Row='2' Visibility='Collapsed' HorizontalAlignment='Center' VerticalAlignment='Center' IsHitTestVisible='False'>
         <TextBlock x:Name='avisoBuscaTitulo' FontSize='17' FontWeight='SemiBold' HorizontalAlignment='Center' Foreground='{DynamicResource Texto}'/>

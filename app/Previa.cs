@@ -355,7 +355,7 @@ namespace MacSkin
                 base.PrepareContainerForItemOverride(c, item);
                 var en = (Entrada)item;
                 if (en.Icone != null) return;
-                var mac = en.EhPasta ? Finder.IconePasta(en.Caminho) : null;
+                var mac = en.EhPasta ? Finder.IconePasta(en.Caminho, 18) : null;
                 if (mac != null) en.Icone = mac;
                 else Shell.PedirImagem(en.Caminho, 32, i => en.Icone = i);
             }
@@ -372,7 +372,7 @@ namespace MacSkin
                 recursosPasta["TextoSec"] = sec;
             }
 
-            var img = new Image { Width = 44, Height = 44, Source = Finder.IconePasta(e.Caminho) ?? e.Grande ?? e.Icone, Margin = new Thickness(0, 0, 12, 0) };
+            var img = new Image { Width = 44, Height = 44, Source = Finder.IconePasta(e.Caminho, 44) ?? e.Grande ?? e.Icone, Margin = new Thickness(0, 0, 12, 0) };
             var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             info.Children.Add(new TextBlock { Text = e.Nome, Foreground = texto, FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
             var resumo = new TextBlock { Text = "Modificado: " + e.DataTexto, Foreground = sec, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
