@@ -1,6 +1,6 @@
 // Mac Skin Substituição de Texto: digite um atalho (ex.: @cpf) em qualquer app e ele vira o texto cadastrado.
 // Motor: gancho de teclado do Windows numa thread própria; ao reconhecer um atalho, apaga o que foi digitado e escreve
-// o texto (digitando, se for curto; colando, se tiver várias linhas). Tudo fica no computador (substituicoes.json).
+// o texto (digitando, se for curto; colando, se tiver várias linhas). Tudo fica no computador, num SQLite em %APPDATA%\Mac Skin Dados.
 // Editor: janela no visual do Finder, com o mesmo arranjo do Text Blaze (lista à esquerda, edição à direita).
 using System;
 using System.Collections.Generic;
@@ -23,6 +23,7 @@ namespace MacSkin
 {
     public class AtalhoTexto
     {
+        public long Id { get; set; }          // linha no banco (0 = ainda não gravado)
         public string Nome { get; set; }
         public string Gatilho { get; set; }
         public string Texto { get; set; }
@@ -42,7 +43,6 @@ namespace MacSkin
     static class Substituicao
     {
         public static DadosSubstituicao D = new DadosSubstituicao();
-        static string Arq { get { return Path.Combine(Comum.Dir, "substituicoes.json"); } }
         static Dispatcher ui;
         static volatile AtalhoTexto[] ativos = new AtalhoTexto[0];   // cópia lida pela thread do gancho
         static DispatcherTimer salvarT;
@@ -51,33 +51,136 @@ namespace MacSkin
         static void Log(string m) { Comum.Log("substituicao.log", m); }
 
         // ---------- dados ----------
+        // Os atalhos ficam num SQLite FORA da pasta do programa (desinstalar/reinstalar apaga a pasta do programa e já
+        // levou os atalhos uma vez): %APPDATA%\Mac Skin Dados\substituicoes.db, com backup diário em backups\ (30 dias).
+        // Apagar no editor não apaga do banco: vai para a lixeira (coluna excluido com a data).
+        public static string PastaDados { get { return Environment.GetEnvironmentVariable("MACSKIN_DADOS") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Mac Skin Dados"); } }
+        static string ArqBanco { get { return Path.Combine(PastaDados, "substituicoes.db"); } }
+        static string PastaBackups { get { return Path.Combine(PastaDados, "backups"); } }
+        static BancoLocal banco;
+        static string Agora() { return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); }
+
         static void Carregar()
         {
             try
             {
-                if (File.Exists(Arq))
-                {
-                    var d = new JavaScriptSerializer().Deserialize<DadosSubstituicao>(File.ReadAllText(Arq, Encoding.UTF8));
-                    if (d != null && d.Itens != null) D = d;
-                }
+                Directory.CreateDirectory(PastaBackups);
+                banco = AbrirBanco();
+                var d = new DadosSubstituicao();
+                foreach (var l in banco.Ler("SELECT id, nome, gatilho, texto, pasta, ativo, usos FROM atalho WHERE excluido IS NULL ORDER BY id"))
+                    d.Itens.Add(new AtalhoTexto { Id = (long)l[0], Nome = (string)l[1] ?? "", Gatilho = (string)l[2] ?? "", Texto = (string)l[3] ?? "", Pasta = (string)l[4] ?? "Meus Atalhos", Ativo = (long)l[5] != 0, Usos = (int)(long)l[6] });
+                var lig = banco.Escalar("SELECT valor FROM config WHERE chave = ?", "ligado") as string;
+                d.Ligado = lig != "0";
+                D = d;
+                Log("banco aberto: " + D.Itens.Count + " atalhos (" + ArqBanco + ")");
+                Backup();
             }
-            catch (Exception e) { Log("carregar: " + e.Message); }
+            catch (Exception e) { Log("carregar: " + e); }
             Atualizou();
+        }
+
+        static BancoLocal AbrirBanco()
+        {
+            BancoLocal b = null;
+            try
+            {
+                b = new BancoLocal(ArqBanco);
+                var ok = b.Escalar("PRAGMA integrity_check") as string;
+                if (ok != "ok") throw new Exception("integridade: " + ok);
+            }
+            catch (Exception e)
+            {
+                // banco estragado: guarda o arquivo ruim e volta o backup mais recente
+                if (b != null) b.Dispose();
+                Log("banco com problema (" + e.Message + "), restaurando do backup");
+                if (File.Exists(ArqBanco)) File.Move(ArqBanco, ArqBanco + ".defeito-" + DateTime.Now.ToString("yyyyMMddHHmmss"));
+                var ult = Directory.GetFiles(PastaBackups, "substituicoes-*.db").OrderByDescending(f => f).FirstOrDefault();
+                if (ult != null) File.Copy(ult, ArqBanco);
+                b = new BancoLocal(ArqBanco);
+            }
+            b.Exec("PRAGMA journal_mode = DELETE");
+            b.Exec("PRAGMA synchronous = FULL");      // gravado de verdade no disco antes de seguir (queda de energia)
+            b.Exec(@"CREATE TABLE IF NOT EXISTS atalho (
+                id INTEGER PRIMARY KEY, nome TEXT NOT NULL DEFAULT '', gatilho TEXT NOT NULL DEFAULT '', texto TEXT NOT NULL DEFAULT '',
+                pasta TEXT NOT NULL DEFAULT 'Meus Atalhos', ativo INTEGER NOT NULL DEFAULT 1, usos INTEGER NOT NULL DEFAULT 0,
+                criado TEXT, alterado TEXT, excluido TEXT)");
+            b.Exec("CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)");
+            Migrar(b);
+            return b;
+        }
+
+        // primeira vez: traz o substituicoes.json antigo (da pasta do programa) para o banco e guarda o json renomeado
+        static void Migrar(BancoLocal b)
+        {
+            string json = Path.Combine(Comum.Dir, "substituicoes.json");
+            if (!File.Exists(json) || (long)b.Escalar("SELECT count(*) FROM atalho") > 0) return;
+            var d = new JavaScriptSerializer().Deserialize<DadosSubstituicao>(File.ReadAllText(json, Encoding.UTF8));
+            if (d == null || d.Itens == null) return;
+            b.Exec("BEGIN");
+            try
+            {
+                foreach (var a in d.Itens)
+                    b.Exec("INSERT INTO atalho (nome, gatilho, texto, pasta, ativo, usos, criado, alterado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", a.Nome ?? "", a.Gatilho ?? "", a.Texto ?? "", a.Pasta ?? "Meus Atalhos", a.Ativo, a.Usos, Agora(), Agora());
+                b.Exec("INSERT OR REPLACE INTO config (chave, valor) VALUES (?, ?)", "ligado", d.Ligado ? "1" : "0");
+                b.Exec("COMMIT");
+            }
+            catch { b.Exec("ROLLBACK"); throw; }
+            File.Copy(json, Path.Combine(PastaDados, "substituicoes-migrado-" + DateTime.Now.ToString("yyyyMMddHHmmss") + ".json"), true);
+            File.Move(json, json + ".migrado");
+            Log("migrados " + d.Itens.Count + " atalhos do substituicoes.json para o banco");
+        }
+
+        // uma cópia por dia (VACUUM INTO faz uma cópia consistente), guardando os 30 dias mais recentes
+        static void Backup()
+        {
+            string hoje = Path.Combine(PastaBackups, "substituicoes-" + DateTime.Now.ToString("yyyy-MM-dd") + ".db");
+            if (!File.Exists(hoje)) banco.Exec("VACUUM INTO ?", hoje);
+            foreach (var velho in Directory.GetFiles(PastaBackups, "substituicoes-*.db").OrderByDescending(f => f).Skip(30)) File.Delete(velho);
         }
 
         public static void Salvar()
         {
+            if (ui != null && !ui.CheckAccess()) { ui.BeginInvoke(new Action(Salvar)); return; }
             if (salvarT == null)
             {
                 salvarT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-                salvarT.Tick += delegate
-                {
-                    salvarT.Stop();
-                    try { File.WriteAllText(Arq, new JavaScriptSerializer().Serialize(D), Encoding.UTF8); }
-                    catch (Exception e) { Log("salvar: " + e.Message); }
-                };
+                salvarT.Tick += delegate { salvarT.Stop(); Gravar(); };
             }
             salvarT.Stop(); salvarT.Start();
+        }
+
+        // grava a lista inteira numa transação: novos entram, alterados mudam, os que sumiram da lista vão para a lixeira
+        static void Gravar()
+        {
+            if (banco == null) { Log("salvar: banco não abriu, nada gravado"); return; }
+            try
+            {
+                banco.Exec("BEGIN IMMEDIATE");
+                try
+                {
+                    var vivos = new HashSet<long>();
+                    foreach (var a in D.Itens.ToArray())
+                    {
+                        if (a.Id == 0)
+                        {
+                            banco.Exec("INSERT INTO atalho (nome, gatilho, texto, pasta, ativo, usos, criado, alterado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", a.Nome ?? "", a.Gatilho ?? "", a.Texto ?? "", a.Pasta ?? "Meus Atalhos", a.Ativo, a.Usos, Agora(), Agora());
+                            a.Id = banco.UltimoId;
+                        }
+                        else
+                            banco.Exec(@"UPDATE atalho SET nome = ?, gatilho = ?, texto = ?, pasta = ?, ativo = ?, usos = ?, alterado = ?
+                                WHERE id = ? AND (nome IS NOT ? OR gatilho IS NOT ? OR texto IS NOT ? OR pasta IS NOT ? OR ativo IS NOT ? OR usos IS NOT ?)",
+                                a.Nome ?? "", a.Gatilho ?? "", a.Texto ?? "", a.Pasta ?? "Meus Atalhos", a.Ativo, a.Usos, Agora(), a.Id,
+                                a.Nome ?? "", a.Gatilho ?? "", a.Texto ?? "", a.Pasta ?? "Meus Atalhos", a.Ativo, a.Usos);
+                        vivos.Add(a.Id);
+                    }
+                    foreach (var l in banco.Ler("SELECT id FROM atalho WHERE excluido IS NULL"))
+                        if (!vivos.Contains((long)l[0])) banco.Exec("UPDATE atalho SET excluido = ? WHERE id = ?", Agora(), (long)l[0]);
+                    banco.Exec("INSERT OR REPLACE INTO config (chave, valor) VALUES (?, ?)", "ligado", D.Ligado ? "1" : "0");
+                    banco.Exec("COMMIT");
+                }
+                catch { banco.Exec("ROLLBACK"); throw; }
+            }
+            catch (Exception e) { Log("salvar: " + e.Message); }
         }
 
         // refaz a cópia que o gancho consulta (só os ativos, o atalho mais longo primeiro)
@@ -128,7 +231,12 @@ namespace MacSkin
             fio = null; fioId = 0;
         }
 
-        public static void Parar() { iniciado = false; Desligar(); }
+        public static void Parar()
+        {
+            iniciado = false; Desligar();
+            if (salvarT != null && salvarT.IsEnabled) { salvarT.Stop(); Gravar(); }   // não perde a última alteração
+            if (banco != null) { banco.Dispose(); banco = null; }
+        }
 
         const int Marca = 0x4D534B4E;   // dwExtraInfo das teclas que nós mesmos mandamos
         static HookProc teclado, mouse;

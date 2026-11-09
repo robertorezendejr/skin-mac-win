@@ -53,15 +53,19 @@ namespace MacSkin
                 eu = new WindowInteropHelper(Janela).Handle;
                 Win32.Estilo(eu, Win32.EX_TOOL | Win32.EX_TRANSPARENT | Win32.EX_NOACTIVATE);   // fora do Alt+Tab, clique passa, sem foco
             };
-            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
-            t.Tick += delegate { Verificar(); }; t.Start();
+            // 30 ms com o mouse andando; parado há mais de 2 s, 150 ms (menos despertares do processador, sem atraso
+            // perceptível: o primeiro movimento já volta para 30 ms)
+            timer = new DispatcherTimer { Interval = Rapido };
+            timer.Tick += delegate { Verificar(); }; timer.Start();
         }
 
         public void Mostrar() { Janela.Show(); Esconder(); Log("botões abertos"); }
 
         void Esconder() { if (visivel || Janela.IsVisible) { Janela.Visibility = Visibility.Hidden; visivel = false; } }
 
-        Win32.POINT ultimo = new Win32.POINT { X = int.MinValue };   // onde o mouse estava na última checagem
+        Win32.POINT ultimo = new Win32.POINT { X = int.MinValue };
+        DispatcherTimer timer; int parado;
+        static readonly TimeSpan Rapido = TimeSpan.FromMilliseconds(30), Lento = TimeSpan.FromMilliseconds(150);   // onde o mouse estava na última checagem
 
         void Verificar()
         {
@@ -69,7 +73,13 @@ namespace MacSkin
             {
                 Win32.POINT p; Win32.GetCursorPos(out p);
                 // mouse parado com os botões escondidos: nada mudou (a medição de uma janela nova zera ultimo)
-                if (!visivel && p.X == ultimo.X && p.Y == ultimo.Y) return;
+                if (!visivel && p.X == ultimo.X && p.Y == ultimo.Y)
+                {
+                    if (++parado == 66 && timer.Interval != Lento) timer.Interval = Lento;
+                    return;
+                }
+                parado = 0;
+                if (timer.Interval != Rapido) timer.Interval = Rapido;
                 ultimo = p;
                 IntPtr h = Win32.GetAncestor(Win32.WindowFromPoint(p), 2);
                 if (h == IntPtr.Zero || h == eu) { Esconder(); return; }
