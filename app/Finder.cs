@@ -1081,7 +1081,7 @@ namespace MacSkin
                 var en = e;
                 if (en.EhPasta)
                 {
-                    var mac = IconePasta(en.Caminho, modo == "colunas" ? 18 : 28);
+                    var mac = IconePasta(en.Caminho, 28);
                     if (mac != null) { en.Icone = mac; en.Grande = IconePasta(en.Caminho, modo == "galeria" ? 160 : 64); continue; }
                 }
                 Shell.PedirImagem(en.Caminho, px, img => { if (g != geracao) return; if (px <= 32) en.Icone = img; else { en.Grande = img; if (en.Icone == null) en.Icone = img; } });
@@ -1126,7 +1126,7 @@ namespace MacSkin
         Coluna colAtiva;   // a coluna do último clique/foco: é dela a seleção que Copiar, Apagar, Espaço etc. usam
         FrameworkElement previaCol; string previaDe;
         bool sincronizando;   // mexendo nas colunas por código: a seleção que muda aí não abre nem fecha colunas
-        const double LarguraColuna = 250;
+        const double LarguraColuna = 290;
 
         static bool Igual(string a, string b)
         {
@@ -2300,13 +2300,14 @@ namespace MacSkin
     <!-- linha de uma coluna do modo Colunas: ícone, nome e › nas pastas; pasta aberta fica cinza quando a coluna não tem o foco -->
     <Style x:Key='Celula' TargetType='ListBoxItem'>
       <Setter Property='Foreground' Value='{DynamicResource Texto}'/>
-      <Setter Property='Height' Value='28'/>
+      <Setter Property='Height' Value='36'/>
+      <Setter Property='FontSize' Value='15'/>
       <Setter Property='FocusVisualStyle' Value='{x:Null}'/>
       <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListBoxItem'>
         <Border x:Name='b' Background='Transparent' CornerRadius='5' Margin='6,0' Padding='6,0'>
           <DockPanel>
-            <TextBlock DockPanel.Dock='Right' Text='&#xE76C;' FontFamily='{StaticResource Ico}' FontSize='9' Margin='6,0,0,0' VerticalAlignment='Center' Opacity='0.6' Visibility='{Binding SetaColuna}'/>
-            <Image Source='{Binding Icone}' Width='18' Height='18' Margin='0,0,8,0' VerticalAlignment='Center' RenderOptions.BitmapScalingMode='HighQuality'/>
+            <TextBlock DockPanel.Dock='Right' Text='&#xE76C;' FontFamily='{StaticResource Ico}' FontSize='10' Margin='6,0,0,0' VerticalAlignment='Center' Opacity='0.6' Visibility='{Binding SetaColuna}'/>
+            <Grid Width='28' Height='28' Margin='0,0,10,0' VerticalAlignment='Center'><Image Source='{Binding Icone}' RenderOptions.BitmapScalingMode='HighQuality'><Image.Style><Style TargetType='Image'><Setter Property='Width' Value='18'/><Setter Property='Height' Value='18'/><Style.Triggers><DataTrigger Binding='{Binding EhPasta}' Value='True'><Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/></DataTrigger></Style.Triggers></Style></Image.Style></Image></Grid>
             <TextBlock Text='{Binding Nome}' VerticalAlignment='Center' TextTrimming='CharacterEllipsis'/>
           </DockPanel></Border>
         <ControlTemplate.Triggers>
