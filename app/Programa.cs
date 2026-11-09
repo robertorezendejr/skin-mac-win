@@ -3,6 +3,7 @@
 //   MacSkin.exe --vigia   abre o de cima e reabre se ele cair (é o que roda no login)
 //   MacSkin.exe --finder [pasta]   abre uma janela do Finder
 //   MacSkin.exe --descompactar arquivo.zip   descompacta ao lado e mostra no Finder (zip aberto no Explorador)
+//   MacSkin.exe --holofote        só o holofote (Ctrl duas vezes), para testar sem reiniciar o resto
 //   MacSkin.exe --escolher hwnd    troca a caixa Abrir/Salvar/Selecionar pasta de outro programa pelo Finder
 // "Desligar Mac Skin" cria o arquivo "desligado" na pasta e fecha tudo; o vigia respeita.
 using System;
@@ -25,6 +26,7 @@ namespace MacSkin
             if (args.Length > 1 && args[0] == "--descompactar") return AbrirFinder(Path.GetDirectoryName(args[1]), null, null, args[1]);
             if (args.Length > 1 && args[0] == "--escolher") return Escolha.Abrir(new IntPtr(long.Parse(args[1])));
             if (args.Length > 2 && args[0] == "--medir-finder") return AbrirFinder(args[1], args[2]);
+            if (args.Length > 0 && args[0] == "--holofote") { Holofote.Iniciar(); Thread.Sleep(Timeout.Infinite); return 0; }   // teste: só o holofote
             if (args.Length > 0 && args[0] == "--janelas")   // diagnóstico: o que a dock enxerga como app aberto
             {
                 var linhas = new System.Collections.Generic.List<string>();
@@ -69,12 +71,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Escolha.Parar(); Arrastar3Dedos.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Escolha.Parar(); Arrastar3Dedos.Parar(); Holofote.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar(); Arrastar3Dedos.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar(); Arrastar3Dedos.Iniciar(); Holofote.Iniciar();
             // mais leve: devolve ao Windows a memória que o .NET não está usando, mas só com o computador parado (2 min
             // sem mouse/teclado) e uma vez por pausa. Fazer isso a cada minuto com o usuário mexendo deixava a dock e a
             // barra lentas no próximo toque, porque tudo voltava do disco aos poucos.
