@@ -211,7 +211,8 @@ namespace MacSkin
         readonly Border aro, fundo;
         readonly UniformGrid grade;
         readonly TextBlock titulo, vazio, rapidas;
-        readonly Border sep, itemRapidas;
+        readonly Border sep, itemRapidas, sepSom;
+        readonly BlocoSomTeclado som;
         IntPtr h; bool? claro;
         // depois de um clique num ícone o app abre o menu/janela dele e a caixa perde o foco: ela continua aberta
         // até um clique fora dela e fora desse app (ou outro app vir para a frente)
@@ -250,7 +251,9 @@ namespace MacSkin
             itemRapidas.MouseEnter += delegate { itemRapidas.Background = sobre; };
             itemRapidas.MouseLeave += delegate { itemRapidas.Background = Nada; };
             itemRapidas.MouseLeftButtonUp += delegate { jan.Hide(); Win32.Win(0x41); };
-            pilha.Children.Add(titulo); pilha.Children.Add(grade); pilha.Children.Add(vazio); pilha.Children.Add(sep); pilha.Children.Add(itemRapidas);
+            sepSom = new Border { Height = 1, Margin = new Thickness(0, 8, 0, 8) };
+            som = new BlocoSomTeclado();
+            pilha.Children.Add(titulo); pilha.Children.Add(grade); pilha.Children.Add(vazio); pilha.Children.Add(sepSom); pilha.Children.Add(som.Raiz); pilha.Children.Add(sep); pilha.Children.Add(itemRapidas);
             fundo.Child = pilha;
             var raiz = new Grid(); raiz.Children.Add(aro); raiz.Children.Add(fundo);
             jan.Content = raiz;
@@ -278,6 +281,7 @@ namespace MacSkin
             if (Environment.TickCount - escondeuEm < 400) return;
             Bandeja.Limpar();
             Montar();
+            som.Atualizar();
             vidro.Show();
             if (jan.Owner == null) jan.Owner = vidro;   // o conteúdo fica sempre na frente do vidro
             claro = null; Tema();
@@ -326,7 +330,8 @@ namespace MacSkin
             sobre = c ? Comum.Cor("#1A000000") : Comum.Cor("#26FFFFFF");
             jan.Foreground = texto;
             titulo.Foreground = vazio.Foreground = rapidas.Foreground = texto;
-            sep.Background = c ? Comum.Cor("#1F000000") : Comum.Cor("#26FFFFFF");
+            sep.Background = sepSom.Background = c ? Comum.Cor("#1F000000") : Comum.Cor("#26FFFFFF");
+            som.Tema(c, texto, sobre);
             Montar();
         }
 

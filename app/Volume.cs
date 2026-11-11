@@ -229,7 +229,7 @@ namespace MacSkin
         // ---------- áudio ----------
         void Ligar()
         {
-            var enumerador = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            var enumerador = (IMMDeviceEnumerator)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")));
             IMMDevice dev; enumerador.GetDefaultAudioEndpoint(0, 1, out dev);   // saída, console
             string id; dev.GetId(out id);
             Guid iid = typeof(IAudioEndpointVolume).GUID; object o;
@@ -263,7 +263,7 @@ namespace MacSkin
         {
             try
             {
-                var enumerador = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+                var enumerador = (IMMDeviceEnumerator)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")));
                 IMMDevice dev; enumerador.GetDefaultAudioEndpoint(0, 1, out dev);
                 string id; dev.GetId(out id);
                 if (id == epId) return;
@@ -326,17 +326,20 @@ namespace MacSkin
             catch (Exception e) { Log("exibir: " + e.Message); }
         }
 
-        void Exibir(float v, bool m, bool brilho = false)
+        // aviso de outro recurso no mesmo cartão (ex.: Som de teclado ligado/desligado), com o nível dele na barra
+        public static void Aviso(string texto, float nivel, bool desligado) { if (atual != null) try { atual.Exibir(nivel, desligado, false, texto); } catch (Exception e) { Log("aviso: " + e.Message); } }
+
+        void Exibir(float v, bool m, bool brilho = false, string aviso = null)
         {
             var c = Comum.TemaClaro();
             if (c != claro) { claro = c; Tema(c); if (hVidro != IntPtr.Zero) Win32.Vidro(hVidro, c ? 0x1EF8F6F6 : 0x24383030, true); }
 
-            titulo.Text = brilho ? "Brilho da Tela" : epNome;
+            titulo.Text = aviso ?? (brilho ? "Brilho da Tela" : epNome);
             double pct = Math.Max(0, Math.Min(1, v));
             double alvo = m ? 0 : pct * Trilho;
             // brilho: sol pequeno à esquerda e sol cheio à direita; volume: alto-falante com as ondas conforme o nível
-            iconeEsq.Text = ((char)(brilho ? 0xEC8A : 0xE992)).ToString();
-            iconeDir.Text = ((char)(brilho ? 0xE706 : m ? 0xE74F : pct <= 0 ? 0xE992 : pct < 0.34 ? 0xE993 : pct < 0.67 ? 0xE994 : 0xE995)).ToString();
+            iconeEsq.Text = ((char)(aviso != null ? 0xE765 : brilho ? 0xEC8A : 0xE992)).ToString();
+            iconeDir.Text = ((char)(aviso != null ? (m ? 0xE74F : 0xE767) : brilho ? 0xE706 : m ? 0xE74F : pct <= 0 ? 0xE992 : pct < 0.34 ? 0xE993 : pct < 0.67 ? 0xE994 : 0xE995)).ToString();
             if (aberto) nivel.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(alvo, TimeSpan.FromMilliseconds(70)));
             else { nivel.BeginAnimation(FrameworkElement.WidthProperty, null); nivel.Width = alvo; }
 
@@ -359,7 +362,7 @@ namespace MacSkin
             }
 
             escondeT.Stop();
-            if (brilho && interativo) SairInterativo();   // brilho apareceu: o cartão volta a ser só um aviso
+            if ((brilho || aviso != null) && interativo) SairInterativo();   // brilho apareceu: o cartão volta a ser só um aviso
             if (!interativo) escondeT.Start();
             // o indicador nativo aparece uns instantes depois da mudança: vigia por um tempo e esconde
             nativoRestante = 75; OcultarNativo(); nativoT.Start();
@@ -450,7 +453,8 @@ namespace MacSkin
         }
 
         // ---------- COM da API de áudio do Windows (Core Audio) ----------
-        [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumeratorCom { }
+        // o enumerador é criado pelo CLSID (sem classe ComImport): o Wasapi.cs usa o mesmo objeto COM, e uma classe declarada
+        // em dois lugares fazia a conversão falhar em quem criasse depois
 
         [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         interface IMMDeviceEnumerator

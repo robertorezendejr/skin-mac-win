@@ -1,0 +1,25 @@
+feature,area,priority,original,clone,notes
+Som a cada tecla (gancho global de teclado),motor,must,yes,yes,reaproveitar o padrão WH_KEYBOARD_LL do Holofote.cs; ignorar teclas com a Marca da Substituição
+Som diferente para descer e subir a tecla,motor,must,yes,yes,"original: ""Up/down keystrokes""; ignorar auto-repetição do key-down"
+Latência mínima (tocar em menos de 10 ms),motor,must,yes,yes,medido ~15 ms (mediana) da tecla ao alto-falante; período do dispositivo 10 ms
+Várias teclas ao mesmo tempo sem cortar (polifonia),motor,must,yes,yes,mixer com vozes simultâneas
+Variação aleatória de tom e volume,motor,must,yes,yes,"original: ""Randomized pitching""; evita o som de metralhadora"
+Sons próprios por grupo de tecla (espaço / Enter / Backspace / comuns),sons,must,inferido,yes,"""over 100 audio files"" por conjunto sugere amostras por tecla ou grupo"
+Ao menos 3 perfis de switch próprios,sons,must,yes,yes,original tem 7 conjuntos; os nossos com nomes e sons nossos
+Ligar e desligar rápido pela barra/Central de Controle,interface,must,yes,yes,original: item no menu da barra
+Volume próprio do som de teclado,interface,must,yes,yes,limitado ao volume do sistema como no original
+Atalho de teclado para ligar/desligar,interface,should,yes,yes,changelog 1.2
+Prévia de cada perfil ao escolher,interface,should,yes,yes,site tem botão de play por switch
+Sons opcionais para modificadores (Shift Ctrl Alt Win),motor,should,yes,yes,changelog 1.5; desligado por padrão
+Teclas de função e teclado numérico com som,motor,should,yes,yes,changelog 1.4 e 1.6
+Áudio espacial (tecla à esquerda soa à esquerda),motor,should,yes,yes,pan estéreo pela coluna da tecla no layout ABNT2
+Escolher a saída de áudio,interface,should,yes,yes,changelog 1.3; Volume.cs já fala com a API de áudio
+Pausar automaticamente (tela compartilhada / jogo em tela cheia / mídia tocando / reunião),motor,should,yes,partial,feito: tela cheia/jogo/apresentação e campo de senha; falta: compartilhamento de tela e reunião
+Aviso ao trocar de perfil,interface,could,yes,partial,cartão de vidro ao ligar/desligar pelo atalho; trocar perfil pela Central toca a prévia
+Som de clique do mouse,motor,could,yes,yes,changelog 1.7
+Som de rolagem,motor,could,yes,yes,changelog 2.2
+Estatísticas de digitação,interface,could,yes,partial,só a contagem de teclas por dia (Central > Mais opções)
+Ícone configurável / esconder ícone da barra,interface,could,yes,no,changelog 1.2 e 1.3
+Integração AppleScript / Raycast,integrações,could,yes,skip,específico do macOS; equivalente seria linha de comando MacSkin.exe --teclado
+Licença com 5 aparelhos e versão App Store,negócio,could,yes,skip,o recurso vai dentro do Mac Skin
+Áudios gravados do Klack,sons,must,yes,skip,"conteúdo deles; usar gravação própria, CC0 ou síntese"
