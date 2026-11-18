@@ -3,7 +3,6 @@
 //   MacSkin.exe --vigia   abre o de cima e reabre se ele cair (é o que roda no login)
 //   MacSkin.exe --finder [pasta]   abre uma janela do Finder
 //   MacSkin.exe --descompactar arquivo.zip   descompacta ao lado e mostra no Finder (zip aberto no Explorador)
-//   MacSkin.exe --som-teclado     só o som de teclado; --testar-som-teclado [relatório.txt] roda a bateria de testes
 //   MacSkin.exe --holofote        só o holofote (Ctrl duas vezes), para testar sem reiniciar o resto
 //   MacSkin.exe --escolher hwnd    troca a caixa Abrir/Salvar/Selecionar pasta de outro programa pelo Finder
 // "Desligar Mac Skin" cria o arquivo "desligado" na pasta e fecha tudo; o vigia respeita.
@@ -27,9 +26,6 @@ namespace MacSkin
             if (args.Length > 1 && args[0] == "--descompactar") return AbrirFinder(Path.GetDirectoryName(args[1]), null, null, args[1]);
             if (args.Length > 1 && args[0] == "--escolher") return Escolha.Abrir(new IntPtr(long.Parse(args[1])));
             if (args.Length > 2 && args[0] == "--medir-finder") return AbrirFinder(args[1], args[2]);
-            if (args.Length > 0 && args[0] == "--som-teclado") { SomTeclado.Iniciar(); Thread.Sleep(Timeout.Infinite); return 0; }   // teste: só o som de teclado
-            if (args.Length > 0 && args[0] == "--testar-som-teclado") return SomTecladoTestes.Rodar(args);
-            if (args.Length > 1 && args[0] == "--foto-som-teclado") return SomTecladoTestes.Foto(args);
             if (args.Length > 0 && args[0] == "--holofote") { Holofote.Iniciar(); Thread.Sleep(Timeout.Infinite); return 0; }   // teste: só o holofote
             if (args.Length > 0 && args[0] == "--janelas")   // diagnóstico: o que a dock enxerga como app aberto
             {
@@ -75,12 +71,12 @@ namespace MacSkin
             encerrar = delegate
             {
                 barra.Janela.Closed -= encerrar; dock.Janela.Closed -= encerrar;
-                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Escolha.Parar(); Arrastar3Dedos.Parar(); Holofote.Parar(); SomTeclado.Parar(); Bandeja.Parar();
+                barra.Fechar(); dock.Fechar(); volume.Parar(); Substituicao.Parar(); Confirmacao.Parar(); Explorador.Parar(); Escolha.Parar(); Arrastar3Dedos.Parar(); Holofote.Parar(); Bandeja.Parar();
                 app.Shutdown(0);
             };
             barra.Janela.Closed += encerrar; dock.Janela.Closed += encerrar;
 
-            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar(); Arrastar3Dedos.Iniciar(); Holofote.Iniciar(); SomTeclado.Iniciar();
+            barra.Mostrar(); dock.Mostrar(); botoes.Mostrar(); volume.Iniciar(); Confirmacao.Iniciar(); Explorador.Iniciar(); Escolha.Iniciar(); Substituicao.Iniciar(); Arrastar3Dedos.Iniciar(); Holofote.Iniciar();
             // mais leve: devolve ao Windows a memória que o .NET não está usando, mas só com o computador parado (2 min
             // sem mouse/teclado) e uma vez por pausa. Fazer isso a cada minuto com o usuário mexendo deixava a dock e a
             // barra lentas no próximo toque, porque tudo voltava do disco aos poucos.
@@ -106,6 +102,7 @@ namespace MacSkin
         [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern bool SetProcessWorkingSetSize(IntPtr h, IntPtr min, IntPtr max);
         struct LASTINPUTINFO { public uint cbSize, dwTime; }
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO i);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] static extern IntPtr FindWindow(string classe, string titulo);
 
         // reabre o Mac Skin se ele cair; não fica consultando nada, só espera o processo terminar
         static int Vigia()
@@ -118,10 +115,13 @@ namespace MacSkin
             while (true)
             {
                 if (File.Exists(desligado)) { Thread.Sleep(3000); continue; }
+                // no login chega antes do Explorer: espera a barra dele (até 60 s), como o vigia em C
+                for (int t = 0; FindWindow("Shell_TrayWnd", null) == IntPtr.Zero && t < 240; t++) Thread.Sleep(250);
                 try
                 {
                     using (var p = Process.Start(exe))
                     {
+                        try { p.PriorityClass = ProcessPriorityClass.Normal; } catch { }   // a tarefa agendada roda abaixo do normal
                         p.WaitForExit();
                         if (p.ExitCode == JaAberto) { Thread.Sleep(10000); continue; }   // outro já está aberto
                         if (!File.Exists(desligado)) Comum.Log("vigia.log", "Mac Skin fechou (código " + p.ExitCode + "), reabrindo");

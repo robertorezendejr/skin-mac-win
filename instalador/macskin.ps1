@@ -260,6 +260,7 @@ function Instalar-Dock {
     $ini = [Environment]::GetFolderPath('Startup')
     foreach ($s in 'dock', 'botoes', 'barra') { Remove-Item (Join-Path $ini "Mac Skin $s.lnk") -ErrorAction SilentlyContinue }   # versões antigas
     $lnk = Join-Path $ini 'Mac Skin.lnk'
+    if (Registrar-Logon) { Remove-Item $lnk -ErrorAction SilentlyContinue; return }
     try {
         $l = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
         $exe, $argumentos = Comando-Vigia
@@ -267,6 +268,22 @@ function Instalar-Dock {
         $l.Save()
         if ($bk.arquivos -notcontains $lnk) { [void]$bk.arquivos.Add($lnk) }
     } catch { Log "  aviso: o Mac Skin não vai abrir sozinho no login ($($_.Exception.Message))" }
+}
+# tarefa "ao fazer logon": o Agendador dispara no login, enquanto a pasta Inicializar só roda depois de todos os
+# programas do Registro (Teams, OneDrive...), o que levava 2 a 3 minutos. O vigia espera a barra do Explorer sozinho.
+# Sem limite de tempo (o padrão mataria o vigia em 3 dias), na bateria também e com prioridade normal.
+function Registrar-Logon {
+    try {
+        $eu = "$env:USERDOMAIN\$env:USERNAME"
+        $exe, $argumentos = Comando-Vigia
+        $a = if ($argumentos) { New-ScheduledTaskAction -Execute $exe -Argument $argumentos } else { New-ScheduledTaskAction -Execute $exe }
+        $t = New-ScheduledTaskTrigger -AtLogOn -User $eu
+        $p = New-ScheduledTaskPrincipal -UserId $eu -LogonType Interactive -RunLevel Limited
+        $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -Priority 4 -MultipleInstances IgnoreNew
+        Register-ScheduledTask -TaskName 'MacSkin' -Action $a -Trigger $t -Principal $p -Settings $s -Force -ErrorAction Stop | Out-Null
+        Log '  tarefa agendada: MacSkin (ao fazer logon)'
+        return $true
+    } catch { Log "  aviso: sem tarefa de logon, usando a pasta Inicializar (mais lenta) ($($_.Exception.Message))"; return $false }
 }
 # MacSkin.exe nativo (um processo, leve) quando existe; senão, os scripts PowerShell
 function Comando-Vigia {
@@ -319,7 +336,7 @@ function Remover-Cursores {
 function Remover {
     Log 'removendo e restaurando o original'
     Fechar-Dock
-    try { Unregister-ScheduledTask -TaskName 'MacSkin Tema' -Confirm:$false -ErrorAction Stop } catch {}
+    foreach ($n in 'MacSkin Tema', 'MacSkin') { try { Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction Stop } catch {} }
     if ($bk.lnk.Count) {
         try { $sh = New-Object -ComObject WScript.Shell } catch { Log '  aviso: atalhos não restaurados' }
         foreach ($b in $bk.lnk) { try { if (Test-Path $b.Arquivo) { $l = $sh.CreateShortcut($b.Arquivo); $l.IconLocation = $b.Icone; $l.Save() } } catch { Log "  aviso: $($b.Arquivo)" } }

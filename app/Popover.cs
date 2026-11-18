@@ -180,13 +180,14 @@ namespace MacSkin
 
         // ---------- calendário ----------
         static int mesDeslocado;   // meses a partir de hoje
+        static bool verAno;        // clicar no nome do mês mostra o ano inteiro; clicar num mês volta para ele
         static ContextMenu menuCal;
 
         static Action aoMudarAgenda; static bool agendaLigada;
 
         public static void Calendario(ContextMenu m)
         {
-            mesDeslocado = 0; menuCal = m;
+            mesDeslocado = 0; verAno = false; menuCal = m;
             var dono = new Border { Width = 252, Margin = new Thickness(2) };
             m.Items.Add(dono);
             MontarMes(dono, m);
@@ -200,25 +201,32 @@ namespace MacSkin
         {
             var c = new Cores(Comum.TemaClaro());
             var raiz = new StackPanel { Margin = new Thickness(8, 4, 8, 6) };
-            var titulo = T("", 12, FontWeights.Bold, Vermelho); titulo.HorizontalAlignment = HorizontalAlignment.Left;
+            var titulo = T("", 12, FontWeights.Bold, Vermelho);
             var corpo = new Border(); var proximos = new Border();
-            Action atualizar = () => PreencherMes(titulo, corpo, c);
+            // a altura muda (ano × mês, lista de próximos): reencaixa o vidro depois do novo tamanho
+            Action reencaixar = () => m.Dispatcher.BeginInvoke(new Action(() => { if (m.IsOpen) MenuVidro.Reposicionar(m); }), System.Windows.Threading.DispatcherPriority.Loaded);
+            Action atualizar = null;
+            atualizar = () =>
+            {
+                if (verAno) PreencherAno(titulo, corpo, c, desloc => { mesDeslocado = desloc; verAno = false; atualizar(); reencaixar(); });
+                else PreencherMes(titulo, corpo, c);
+                proximos.Visibility = verAno ? Visibility.Collapsed : Visibility.Visible;
+            };
             var cab = new Grid { Margin = new Thickness(2, 2, 2, 4) };
-            cab.Children.Add(titulo);
+            var botaoTitulo = new Border { Child = titulo, Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(-6, 0, 0, 0), CornerRadius = new CornerRadius(6), Background = Brushes.Transparent, Cursor = Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left };
+            botaoTitulo.MouseEnter += delegate { botaoTitulo.Background = c.Hover; };
+            botaoTitulo.MouseLeave += delegate { botaoTitulo.Background = Brushes.Transparent; };
+            Clicavel(botaoTitulo, () => { verAno = !verAno; atualizar(); reencaixar(); });
+            cab.Children.Add(botaoTitulo);
             var nav = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            nav.Children.Add(Seta(c, 0xE76B, () => { mesDeslocado--; atualizar(); }));
+            nav.Children.Add(Seta(c, 0xE76B, () => { mesDeslocado -= verAno ? 12 : 1; atualizar(); }));
             nav.Children.Add(Seta(c, 0xEA3B, () => { mesDeslocado = 0; atualizar(); }));
-            nav.Children.Add(Seta(c, 0xE76C, () => { mesDeslocado++; atualizar(); }));
+            nav.Children.Add(Seta(c, 0xE76C, () => { mesDeslocado += verAno ? 12 : 1; atualizar(); }));
             cab.Children.Add(nav);
             raiz.Children.Add(cab); raiz.Children.Add(corpo); raiz.Children.Add(proximos);
             dono.Child = raiz;
             atualizar(); PreencherProximos(proximos, c);
-            aoMudarAgenda = () =>
-            {
-                atualizar(); PreencherProximos(proximos, c);
-                // a lista muda de altura: reencaixa o vidro depois do novo tamanho
-                m.Dispatcher.BeginInvoke(new Action(() => { if (m.IsOpen) MenuVidro.Reposicionar(m); }), System.Windows.Threading.DispatcherPriority.Loaded);
-            };
+            aoMudarAgenda = () => { atualizar(); PreencherProximos(proximos, c); reencaixar(); };
         }
 
         // cores dos compromissos de cada dia (na ordem do horário)
@@ -261,6 +269,51 @@ namespace MacSkin
                 grade.Children.Add(cel);
             }
             corpo.Child = grade;
+        }
+
+        // o ano inteiro: 12 meses pequenos em 3 colunas; hoje em vermelho, dias com compromisso em negrito.
+        // abrirMes recebe o deslocamento (em meses a partir de hoje) do mês clicado
+        static void PreencherAno(TextBlock titulo, Border corpo, Cores c, Action<int> abrirMes)
+        {
+            var hoje = DateTime.Today;
+            int ano = new DateTime(hoje.Year, hoje.Month, 1).AddMonths(mesDeslocado).Year;
+            titulo.Text = ano.ToString();
+            var porDia = CoresPorDia();
+            var grade = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
+            for (int mes = 1; mes <= 12; mes++)
+            {
+                var d1 = new DateTime(ano, mes, 1);
+                var pilha = new StackPanel();
+                var nome = T(d1.ToString("MMM", PtBr).TrimEnd('.').ToUpper(PtBr), 10.5, FontWeights.Bold, ano == hoje.Year && mes == hoje.Month ? Vermelho : c.Tx);
+                nome.Margin = new Thickness(2, 0, 0, 2);
+                pilha.Children.Add(nome);
+                var dias = new UniformGrid7 { Rows = 7 };   // letras + sempre 6 semanas: os meses ficam alinhados
+                foreach (char l in "DSTQQSS") dias.Children.Add(Mini(l.ToString(), c.Sub, false, FontWeights.SemiBold));
+                for (int i = 0; i < (int)d1.DayOfWeek; i++) dias.Children.Add(new Border());
+                for (var d = d1; d.Month == mes; d = d.AddDays(1))
+                {
+                    bool fim = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
+                    dias.Children.Add(Mini(d.Day.ToString(), fim ? c.Sub : c.Tx, d == hoje, porDia.ContainsKey(d) ? FontWeights.Bold : FontWeights.Normal));
+                }
+                pilha.Children.Add(dias);
+                var b = new Border { Child = pilha, Padding = new Thickness(2, 4, 2, 4), CornerRadius = new CornerRadius(6), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+                b.MouseEnter += delegate { b.Background = c.Hover; };
+                b.MouseLeave += delegate { b.Background = Brushes.Transparent; };
+                int desloc = (ano - hoje.Year) * 12 + mes - hoje.Month;
+                Clicavel(b, () => abrirMes(desloc));
+                grade.Children.Add(b);
+            }
+            corpo.Child = grade;
+        }
+
+        // dia do ano: texto de 7,5 px numa linha de 11 px; hoje num círculo vermelho
+        static UIElement Mini(string txt, Brush cor, bool hoje, FontWeight peso)
+        {
+            var t = new TextBlock { Text = txt, FontFamily = Texto, FontSize = 7.5, FontWeight = hoje ? FontWeights.Bold : peso, Foreground = hoje ? Brushes.White : cor, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var g = new Grid { Height = 11 };
+            if (hoje) g.Children.Add(new Ellipse { Width = 11, Height = 11, Fill = Vermelho });
+            g.Children.Add(t);
+            return g;
         }
 
         // número numa caixa de 28 px no alto; pontinhos coloridos (até 3) logo abaixo, como no Calendário do Mac

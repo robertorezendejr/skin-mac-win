@@ -26,7 +26,7 @@ Vidro com desfoque (Liquid Glass), ícones que crescem sob o mouse e ponto nos a
 
 ### Barra de menus
 
-Calendário no relógio, Bluetooth, Central de Controle com os apps em segundo plano (a bandeja do Windows) e indicador de volume em vidro, como no macOS.
+Calendário no relógio (clique no nome do mês para ver o ano inteiro), Bluetooth, Central de Controle com os apps em segundo plano (a bandeja do Windows) e indicador de volume em vidro, como no macOS.
 
 | Calendário | Central de Controle |
 |---|---|
@@ -59,10 +59,6 @@ Três modos de visualização: lista, ícones e galeria.
 Digite um atalho (ex.: `@ass`) em qualquer app e ele vira o texto cadastrado, com campos como data, hora, dia da semana, área de transferência e posição do cursor. Abra em *botão direito na dock › Substituição de Texto…*. Tudo fica no seu computador.
 
 ![Editor de Substituição de Texto](docs/img/substituicao.png)
-
-### Som de teclado
-
-Cada tecla toca um clique de teclado mecânico, um ao descer e outro ao subir, com tom e volume um pouco diferentes a cada toque e do lado da tecla (esquerda/direita). Fica calado em campos de senha e em jogo ou apresentação em tela cheia. Liga na *Central de Controle* (ícone ao lado do relógio) ou com `Ctrl+Alt+K`. Três perfis próprios: Grafite (grave), Cristal (com clique) e Seda (discreto).
 
 ### Outros
 
@@ -123,11 +119,7 @@ As caixas "Abrir", "Salvar como" e "Selecionar pasta" dos programas (Antigravity
 
 Como no Mac: encoste 3 dedos no touchpad de precisão e deslize para mover janelas, arrastar arquivos e selecionar texto, sem apertar o touchpad. Ao tirar os dedos há 300 ms de tolerância: recolocando os 3 dedos nesse tempo, o mesmo arrasto continua. Tocar com 3 dedos sem mover não faz nada ([Arrastar3Dedos.cs](app/Arrastar3Dedos.cs)). Roda numa thread própria do Mac Skin, então o programa avulso Arrastar3dedos não deve rodar junto (o `instalar.cmd` o encerra e tira do início com o Windows). Em *Configurações › Bluetooth e dispositivos › Touchpad*, deixe "Passar o dedo" e "Toques" de 3 dedos em *Nada*. Para ajustar, crie `arrastar3dedos.txt` em `%LOCALAPPDATA%\MacSkin` com as linhas `velocidade=1.5`, `tolerancia=300` ou `desligado`; o log fica em `arrastar3dedos.log`.
 
-[vigia.ps1](instalador/vigia.ps1) abre a dock e a barra a cada login e reabre o que fechar. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
-
-### Som de teclado
-
-Começa sempre desligado quando o Mac Skin abre. Na Central de Controle: chave liga/desliga, volume, perfil (▶ toca uma prévia) e *Mais opções* (Shift/Ctrl/Alt/Win, clique do mouse, rolagem, pausa em tela cheia, som espacial, variação de tom, saída de áudio e a contagem de teclas do dia). Os ajustes ficam em `%APPDATA%\Mac Skin Dados\som-teclado.txt` e não somem ao desinstalar ([SomTeclado.cs](app/SomTeclado.cs), saída de áudio de baixa latência em [Wasapi.cs](app/Wasapi.cs)). Os sons são sintetizados pelo próprio programa. Para usar gravações suas ou de licença livre, abra *Mais opções › Pasta de sons…*: há um `LEIA-ME.txt` com o formato (`comum-desce-1.wav`, `espaco-desce-1.wav`...). Sem som em campo de senha: caixas do Windows, WPF e navegadores (Edge, Chrome, Brave, Opera, Vivaldi); apps Electron como o VS Code não são consultados, para não ligarem o modo de leitor de tela. Para editar os sons: botão direito na Dock › *Som de Teclado…* (ou *Mais opções › Editar sons…*). Lá dá para mudar tom, corpo, clique, brilho, duração e o som ao soltar, ajustar o volume de cada tipo de tecla (ouvindo com ▶) e criar perfis seus; tudo grava na hora em `%APPDATA%\Mac Skin Dados\sons-editados` ([SomTecladoEditor.cs](app/SomTecladoEditor.cs)). Bateria de testes: `MacSkin.exe --testar-som-teclado [relatório.txt]`; o log fica em `som-teclado.log`.
+O vigia ([vigia.c](app/vigia.c); sem ele, [vigia.ps1](instalador/vigia.ps1)) abre a dock e a barra a cada login e reabre o que fechar. Ele roda pela tarefa agendada *MacSkin* (ao fazer logon), e não pela pasta Inicializar: o Windows só chega nela depois de todos os programas de inicialização, o que deixava a dock 2 a 3 minutos sem aparecer. O vigia espera só a barra do Explorer existir. Na raiz: `Tema claro.cmd`, `Tema escuro.cmd`, `Desligar Mac Skin.cmd` (fecha dock e barra, inclusive após reiniciar) e `Ligar Mac Skin.cmd`.
 
 ### Tema
 

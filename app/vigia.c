@@ -48,9 +48,19 @@ int WINAPI wWinMain(HINSTANCE a, HINSTANCE b, PWSTR c, int d)
             continue;
         }
 
+        // no login (tarefa agendada) o vigia chega antes do Explorer: espera a barra dele existir, senão a reserva de
+        // tela da dock e da barra e os ícones da bandeja iriam para o vazio. Basta um FindWindow a cada 250 ms (até 60 s)
+        if (!FindWindowW(L"Shell_TrayWnd", NULL))
+        {
+            DWORD ini = GetTickCount();
+            while (!FindWindowW(L"Shell_TrayWnd", NULL) && GetTickCount() - ini < 60000) Sleep(250);
+            wchar_t m[96]; swprintf(m, 96, L"esperou a barra do Explorer por %lu ms", GetTickCount() - ini); Log(m);
+        }
+
         STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi;
         wchar_t cmd[MAX_PATH + 4]; swprintf(cmd, MAX_PATH + 4, L"\"%ls\"", exe);
-        if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi))
+        // prioridade normal explícita: a tarefa agendada roda abaixo do normal e o filho herdaria
+        if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, dir, &si, &pi))
         {
             wchar_t m[128]; swprintf(m, 128, L"erro ao abrir o MacSkin.exe (%lu)", GetLastError()); Log(m);
             Sleep(5000); continue;
